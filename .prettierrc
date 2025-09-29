@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json.schemastore.org/prettierrc",
+  "arrowParens": "avoid",
+  "bracketSameLine": false,
+  "bracketSpacing": true,
+  "semi": false,
+  "singleQuote": true,
+  "jsxSingleQuote": true,
+  "quoteProps": "as-needed",
+  "trailingComma": "all",
+  "singleAttributePerLine": false,
+  "htmlWhitespaceSensitivity": "strict",
+  "vueIndentScriptAndStyle": true,
+  "proseWrap": "never",
+  "insertPragma": false,
+  "printWidth": 120,
+  "requirePragma": false,
+  "tabWidth": 2,
+  "useTabs": true,
+  "embeddedLanguageFormatting": "off",
+  "endOfLine": "auto",
+  "importOrder": [
+    "<BUILTIN_MODULES>",
+    "^@/assets/(.*)$",
+    "^(react/(.*)$)|^(react$)",
+    "<THIRD_PARTY_MODULES>",
+    "^@/components/(.*)$",
+    "^@/components/icons/(.*)$",
+    "^@/hooks/(.*)$",
+    "^@/lib/(.*)$",
+    "^@/utils/(.*)$",
+    "^@/services/(.*)$",
+    "^@/pages/(.*)$",
+    "^@/(.*)$",
+    "^./(.*)$"
+  ],
+  "plugins": [
+    "@prettier/plugin-oxc",
+    "@ianvs/prettier-plugin-sort-imports",
+    "prettier-plugin-tailwindcss"
+  ],
+  "importOrderParserPlugins": ["typescript", "jsx", "decorators-legacy"],
+  "importOrderTypeScriptVersion": "5.0.0",
+  "tailwindStylesheet": "/apps/web/src/assets/index.css",
+  "tailwindFunctions": [
+    "clsx",
+    "cn",
+    "twMerge"
+  ],
+  "tailwindPreserveWhitespace": false,
+  "tailwindPreserveDuplicates": false
+}

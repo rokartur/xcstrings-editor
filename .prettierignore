@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+.prettierrc
+bun.lock
+package.json
+.oxlintrc.json
+*.md
+*.json

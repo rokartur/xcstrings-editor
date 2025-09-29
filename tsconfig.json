@@ -1,0 +1,45 @@
+{
+	"compilerOptions": {
+		// Target & Module Settings
+		"target": "esnext",
+		"lib": ["DOM", "DOM.Iterable", "ESNext"],
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"moduleDetection": "force",
+
+		// Output Settings
+		"jsx": "react-jsx",
+		"noEmit": true,
+
+		// File Layout & Paths
+		"rootDir": ".",
+		"baseUrl": "./",
+		"paths": {
+			"@/*": ["./src/*"],
+		},
+
+		// Type Checking & Strict Options
+		"strict": true,
+		"exactOptionalPropertyTypes": true,
+		"noUncheckedIndexedAccess": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+
+		// File Processing
+		"allowJs": false,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"noResolve": false,
+		"forceConsistentCasingInFileNames": true,
+
+		// Environment & Interop
+		"types": ["node", "vite/client", "vite-plugin-svgr/client", "vite-plugin-pwa/client"],
+		"esModuleInterop": true,
+		"allowImportingTsExtensions": true,
+		"verbatimModuleSyntax": true
+	},
+	"include": ["**/*", "src/**/*", "src/types/*", "*.config.ts"],
+	"exclude": ["dist"]
+}
