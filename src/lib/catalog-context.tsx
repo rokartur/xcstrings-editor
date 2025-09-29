@@ -5,15 +5,31 @@ import type { CatalogEntry, ParsedCatalog, XcStringsDocument } from './xcstrings
 import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocale } from './xcstrings'
 
 interface CatalogState extends ParsedCatalog {
+  id: string
   fileName: string
   dirtyKeys: Set<string>
   originalDocument: XcStringsDocument
   originalContent: string
 }
 
+export interface CatalogSummary {
+  id: string
+  fileName: string
+  timestamp: number
+  lastOpened: number
+}
+
 interface CatalogContextValue {
   catalog: CatalogState | null
-  setCatalogFromFile: (fileName: string, fileContent: string, originalContent?: string) => void
+  storedCatalogs: CatalogSummary[]
+  setCatalogFromFile: (
+    fileName: string,
+    fileContent: string,
+    originalContent?: string,
+    options?: { catalogId?: string },
+  ) => void
+  loadCatalogById: (catalogId: string) => void
+  removeCatalog: (catalogId: string) => void
   updateTranslation: (key: string, locale: string, value: string) => void
   resetCatalog: () => void
   exportContent: () => { fileName: string; content: string } | null
@@ -21,49 +37,148 @@ interface CatalogContextValue {
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined)
 
-const STORAGE_KEY = 'xcstrings-editor-catalog'
+const STORAGE_KEY = 'xcstrings-editor-catalogs'
+const LEGACY_STORAGE_KEY = 'xcstrings-editor-catalog'
+const STORAGE_VERSION = 2
 
-interface StoredCatalogPayload {
+interface StoredCatalogRecord {
+  id: string
+  fileName: string
+  content: string
+  originalContent?: string
+  timestamp: number
+  lastOpened: number
+}
+
+interface StoredCatalogState {
+  version: number
+  currentId: string | null
+  catalogs: StoredCatalogRecord[]
+}
+
+interface LegacyStoredCatalogPayload {
   fileName: string
   content: string
   originalContent?: string
   timestamp: number
 }
 
-function persistCatalog(
-  fileName: string,
-  document: XcStringsDocument,
-  originalDocument: XcStringsDocument,
-  originalContent?: string,
-) {
-  if (typeof window === 'undefined') {
-    return
+function createCatalogId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `catalog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function normalizeRecord(entry: Partial<StoredCatalogRecord>): StoredCatalogRecord | null {
+  if (!entry || typeof entry !== 'object') {
+    return null
   }
 
-  try {
-    const serializedOriginal = originalContent ?? serializeDocument(originalDocument)
-    const payload: StoredCatalogPayload = {
-      fileName,
-      content: serializeDocument(document),
-      originalContent: serializedOriginal,
-      timestamp: Date.now(),
-    }
+  const { id, fileName, content } = entry
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
-  } catch (error) {
-    console.warn('Failed to persist catalog', error)
+  if (typeof id !== 'string' || !id) {
+    return null
+  }
+
+  if (typeof fileName !== 'string' || !fileName) {
+    return null
+  }
+
+  if (typeof content !== 'string') {
+    return null
+  }
+
+  const timestamp = typeof entry.timestamp === 'number' ? entry.timestamp : Date.now()
+  const lastOpened = typeof entry.lastOpened === 'number' ? entry.lastOpened : timestamp
+
+  return {
+    id,
+    fileName,
+    content,
+    originalContent: typeof entry.originalContent === 'string' ? entry.originalContent : undefined,
+    timestamp,
+    lastOpened,
   }
 }
 
-function clearPersistedCatalog() {
+function summariesFromRecords(records: StoredCatalogRecord[]): CatalogSummary[] {
+  return [...records]
+    .sort((a, b) => b.lastOpened - a.lastOpened)
+    .map((record) => ({
+      id: record.id,
+      fileName: record.fileName,
+      timestamp: record.timestamp,
+      lastOpened: record.lastOpened,
+    }))
+}
+
+function readStoredState(): StoredCatalogState {
+  if (typeof window === 'undefined') {
+    return { version: STORAGE_VERSION, currentId: null, catalogs: [] }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredCatalogState>
+      if (parsed && Array.isArray(parsed.catalogs)) {
+        const catalogs = parsed.catalogs
+          .map((entry) => normalizeRecord(entry))
+          .filter((entry): entry is StoredCatalogRecord => entry !== null)
+
+        return {
+          version: typeof parsed.version === 'number' ? parsed.version : STORAGE_VERSION,
+          currentId: typeof parsed.currentId === 'string' ? parsed.currentId : null,
+          catalogs,
+        }
+      }
+    }
+
+    const legacyRaw = window.localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (legacyRaw) {
+      const payload = JSON.parse(legacyRaw) as LegacyStoredCatalogPayload
+
+      if (payload && typeof payload.fileName === 'string' && typeof payload.content === 'string') {
+        const now = Date.now()
+        const id = createCatalogId()
+        const record: StoredCatalogRecord = {
+          id,
+          fileName: payload.fileName,
+          content: payload.content,
+          originalContent:
+            typeof payload.originalContent === 'string' ? payload.originalContent : undefined,
+          timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : now,
+          lastOpened: now,
+        }
+
+        const migrated: StoredCatalogState = {
+          version: STORAGE_VERSION,
+          currentId: id,
+          catalogs: [record],
+        }
+
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated))
+        window.localStorage.removeItem(LEGACY_STORAGE_KEY)
+        return migrated
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to read stored catalogs', error)
+  }
+
+  return { version: STORAGE_VERSION, currentId: null, catalogs: [] }
+}
+
+function writeStoredState(state: StoredCatalogState) {
   if (typeof window === 'undefined') {
     return
   }
 
   try {
-    window.localStorage.removeItem(STORAGE_KEY)
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   } catch (error) {
-    console.warn('Failed to clear persisted catalog', error)
+    console.warn('Failed to persist catalogs', error)
   }
 }
 
@@ -162,9 +277,26 @@ function calculateDirtyKeys(document: XcStringsDocument, originalDocument: XcStr
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const [catalog, setCatalog] = useState<CatalogState | null>(null)
+  const [storedCatalogs, setStoredCatalogs] = useState<CatalogSummary[]>([])
+
+  const updateStoredState = useCallback(
+    (updater: (state: StoredCatalogState) => StoredCatalogState) => {
+      const currentState = readStoredState()
+      const nextState = updater(currentState)
+      writeStoredState(nextState)
+      setStoredCatalogs(summariesFromRecords(nextState.catalogs))
+      return nextState
+    },
+    [],
+  )
 
   const setCatalogFromFile = useCallback(
-    (fileName: string, fileContent: string, originalContent?: string) => {
+    (
+      fileName: string,
+      fileContent: string,
+      originalContent?: string,
+      options?: { catalogId?: string },
+    ) => {
       const parsed = parseXcStrings(fileContent)
 
       let originalDocument: XcStringsDocument | null = null
@@ -184,20 +316,44 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         originalDocument = structuredClone(parsed.document)
       }
 
-      const serializedOriginal = serializeDocument(originalDocument)
+      const serializedDocument = serializeDocument(parsed.document)
+      const serializedOriginal = originalContent ?? serializeDocument(originalDocument)
       const dirtyKeys = calculateDirtyKeys(parsed.document, originalDocument)
+      const catalogId = options?.catalogId ?? createCatalogId()
+      const lastOpened = Date.now()
 
-      persistCatalog(fileName, parsed.document, originalDocument, serializedOriginal)
+      updateStoredState((state) => {
+        const index = state.catalogs.findIndex((entry) => entry.id === catalogId)
+        const nextRecord: StoredCatalogRecord = {
+          id: catalogId,
+          fileName,
+          content: serializedDocument,
+          originalContent: serializedOriginal,
+          timestamp: index === -1 ? lastOpened : state.catalogs[index].timestamp,
+          lastOpened,
+        }
+
+        const nextCatalogs = index === -1
+          ? [...state.catalogs, nextRecord]
+          : state.catalogs.map((entry, entryIndex) => (entryIndex === index ? nextRecord : entry))
+
+        return {
+          version: STORAGE_VERSION,
+          currentId: catalogId,
+          catalogs: nextCatalogs,
+        }
+      })
 
       setCatalog({
         ...parsed,
+        id: catalogId,
         fileName,
         dirtyKeys,
         originalDocument,
         originalContent: serializedOriginal,
       })
     },
-    [],
+    [updateStoredState],
   )
 
   const updateEntries = useCallback(
@@ -247,7 +403,29 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           nextDirty.delete(key)
         }
 
-        persistCatalog(current.fileName, nextDocument, current.originalDocument, current.originalContent)
+        const serializedContent = serializeDocument(nextDocument)
+
+        updateStoredState((state) => {
+          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
+          if (index === -1) {
+            return state
+          }
+
+          const existing = state.catalogs[index]
+          const updatedRecord: StoredCatalogRecord = {
+            ...existing,
+            content: serializedContent,
+          }
+
+          const nextCatalogs = [...state.catalogs]
+          nextCatalogs[index] = updatedRecord
+
+          return {
+            version: STORAGE_VERSION,
+            currentId: current.id,
+            catalogs: nextCatalogs,
+          }
+        })
 
         return {
           ...current,
@@ -259,13 +437,67 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         }
       })
     },
-    [updateEntries],
+    [updateEntries, updateStoredState],
+  )
+
+  const loadCatalogById = useCallback(
+    (catalogId: string) => {
+      const stored = readStoredState()
+      const record = stored.catalogs.find((entry) => entry.id === catalogId)
+
+      if (!record) {
+        return
+      }
+
+      setCatalogFromFile(record.fileName, record.content, record.originalContent, { catalogId })
+    },
+    [setCatalogFromFile],
   )
 
   const resetCatalog = useCallback(() => {
-    setCatalog(null)
-    clearPersistedCatalog()
-  }, [])
+    setCatalog((current) => {
+      const currentId = current?.id ?? null
+
+      updateStoredState((state) => {
+        if (!currentId) {
+          return {
+            version: STORAGE_VERSION,
+            currentId: null,
+            catalogs: state.catalogs,
+          }
+        }
+
+        const nextCatalogs = state.catalogs.filter((entry) => entry.id !== currentId)
+        const nextCurrentId = state.currentId === currentId ? null : state.currentId
+
+        return {
+          version: STORAGE_VERSION,
+          currentId: nextCurrentId,
+          catalogs: nextCatalogs,
+        }
+      })
+
+      return null
+    })
+  }, [updateStoredState])
+
+  const removeCatalog = useCallback(
+    (catalogId: string) => {
+      setCatalog((current) => (current?.id === catalogId ? null : current))
+
+      updateStoredState((state) => {
+        const nextCatalogs = state.catalogs.filter((entry) => entry.id !== catalogId)
+        const nextCurrentId = state.currentId === catalogId ? null : state.currentId
+
+        return {
+          version: STORAGE_VERSION,
+          currentId: nextCurrentId,
+          catalogs: nextCatalogs,
+        }
+      })
+    },
+    [updateStoredState],
+  )
 
   const exportContent = useCallback(() => {
     if (!catalog) {
@@ -280,35 +512,36 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   }, [catalog])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
+    const stored = readStoredState()
+    setStoredCatalogs(summariesFromRecords(stored.catalogs))
+
+    if (!stored.currentId) {
       return
     }
 
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY)
+    const record = stored.catalogs.find((entry) => entry.id === stored.currentId)
 
-      if (!stored) {
-        return
-      }
-
-      const payload = JSON.parse(stored) as StoredCatalogPayload
-
-      if (!payload || typeof payload.fileName !== 'string' || typeof payload.content !== 'string') {
-        return
-      }
-
-      const originalContent =
-        typeof payload.originalContent === 'string' ? payload.originalContent : payload.content
-
-      setCatalogFromFile(payload.fileName, payload.content, originalContent)
-    } catch (error) {
-      console.warn('Failed to restore catalog from storage', error)
+    if (!record) {
+      return
     }
+
+    setCatalogFromFile(record.fileName, record.content, record.originalContent, {
+      catalogId: record.id,
+    })
   }, [setCatalogFromFile])
 
   const value = useMemo<CatalogContextValue>(
-    () => ({ catalog, setCatalogFromFile, updateTranslation, resetCatalog, exportContent }),
-    [catalog, exportContent, resetCatalog, setCatalogFromFile, updateTranslation],
+    () => ({
+      catalog,
+      storedCatalogs,
+      setCatalogFromFile,
+      loadCatalogById,
+      removeCatalog,
+      updateTranslation,
+      resetCatalog,
+      exportContent,
+    }),
+    [catalog, exportContent, loadCatalogById, removeCatalog, resetCatalog, setCatalogFromFile, storedCatalogs, updateTranslation],
   )
 
   return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>

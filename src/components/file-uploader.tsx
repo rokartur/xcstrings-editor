@@ -5,12 +5,18 @@ import { Button } from './ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card.tsx'
 import { cn } from '../lib/utils.ts'
 
-interface FileUploaderProps {
-  onFileLoaded: (fileName: string, content: string) => Promise<void> | void
-  disabled?: boolean
+interface LoadedFile {
+  fileName: string
+  content: string
 }
 
-export function FileUploader({ onFileLoaded, disabled }: FileUploaderProps) {
+interface FileUploaderProps {
+  onFilesLoaded: (files: LoadedFile[]) => Promise<void> | void
+  disabled?: boolean
+  multiple?: boolean
+}
+
+export function FileUploader({ onFilesLoaded, disabled, multiple = false }: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setDragging] = useState(false)
 
@@ -19,9 +25,14 @@ export function FileUploader({ onFileLoaded, disabled }: FileUploaderProps) {
       return
     }
 
-    const file = files[0]
-    const content = await file.text()
-    await onFileLoaded(file.name, content)
+    const loaded = await Promise.all(
+      Array.from(files).map(async (file) => ({
+        fileName: file.name,
+        content: await file.text(),
+      })),
+    )
+
+    await onFilesLoaded(loaded)
 
     if (inputRef.current) {
       inputRef.current.value = ''
@@ -44,7 +55,7 @@ export function FileUploader({ onFileLoaded, disabled }: FileUploaderProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Upload .xcstrings file</CardTitle>
+        <CardTitle>Upload .xcstrings files</CardTitle>
         <CardDescription>Supports translation catalogs exported from Xcode in JSON format.</CardDescription>
       </CardHeader>
       <CardContent>
@@ -70,6 +81,7 @@ export function FileUploader({ onFileLoaded, disabled }: FileUploaderProps) {
           ref={inputRef}
           type="file"
           accept=".xcstrings,application/json"
+          multiple={multiple}
           className="hidden"
           onChange={onInputChange}
           disabled={disabled}
