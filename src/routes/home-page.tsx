@@ -11,6 +11,8 @@ import { Input } from '../components/ui/input.tsx'
 import { useCatalog } from '../lib/catalog-context.tsx'
 import { parseXcStrings } from '../lib/xcstrings.ts'
 import { fetchGithubFileContent, listGithubXcstrings, parseGithubRepo } from '../lib/github.ts'
+import { Label } from '@/components/ui/label.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
 
 type CatalogOption = {
   key: string
@@ -236,8 +238,15 @@ function HomePage() {
     if (findMode !== 'auto') return
     if (!trimmedGithubUrl) return
     if (autoFetchRecord.current === trimmedGithubUrl) return
-    autoFetchRecord.current = trimmedGithubUrl
-    void executeGithubFetch()
+
+    const timeoutId = window.setTimeout(() => {
+      autoFetchRecord.current = trimmedGithubUrl
+      void executeGithubFetch()
+    }, 500)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
   }, [executeGithubFetch, findMode, mode, trimmedGithubUrl])
 
   const handleClearOptions = useCallback(() => {
@@ -305,24 +314,16 @@ function HomePage() {
                 placeholder="owner/repo, owner/repo@branch, or https://github.com/owner/repo"
                 disabled={isLoading}
               />
-              {/* <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant={findMode === 'manual' ? 'default' : 'outline'}
-                  onClick={() => handleFindModeChange('manual')}
-                  disabled={isLoading}
-                >
-                  Find manually
-                </Button>
-                <Button
-                  type="button"
-                  variant={findMode === 'auto' ? 'default' : 'outline'}
-                  onClick={() => handleFindModeChange('auto')}
-                  disabled={isLoading}
-                >
-                  Auto find
-                </Button>
-              </div> */}
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="auto-find"
+                  checked={findMode === 'auto'}
+                  onCheckedChange={(checked) => {
+                    handleFindModeChange(checked ? 'auto' : 'manual')
+                  }}
+                />
+                <Label htmlFor="auto-find">Auto find</Label>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="submit" disabled={isLoading || trimmedGithubUrl === ''}>
                   Find files
