@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { FileUploader } from '../components/file-uploader.tsx'
 import { LanguagePicker } from '../components/language-picker.tsx'
@@ -27,15 +27,62 @@ type UploadedFile = {
 
 function HomePage() {
   const { catalog, setCatalogFromFile, storedCatalogs, loadCatalogById, removeCatalog } = useCatalog()
-  const [mode, setMode] = useState<'upload' | 'github'>('upload')
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [mode, setMode] = useState<'upload' | 'github'>(() =>
+    searchParams.has('github') ? 'github' : 'upload',
+  )
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [githubWarning, setGithubWarning] = useState<string | null>(null)
   const [catalogOptions, setCatalogOptions] = useState<CatalogOption[]>([])
   const [selectedOptionKey, setSelectedOptionKey] = useState<string | null>(null)
-  const [githubUrl, setGithubUrl] = useState('')
-  const navigate = useNavigate()
+  const [githubUrl, setGithubUrl] = useState(() => searchParams.get('github') ?? '')
+  const [findMode, setFindMode] = useState<'manual' | 'auto'>(() =>
+    searchParams.get('find') === 'auto' ? 'auto' : 'manual',
+  )
+  const autoFetchRecord = useRef<string | null>(null)
+
+  useEffect(() => {
+    const githubParam = searchParams.get('github') ?? ''
+    const findParam = searchParams.get('find') === 'auto' ? 'auto' : 'manual'
+    if (searchParams.has('github')) {
+      setMode((current) => (current === 'github' ? current : 'github'))
+    }
+    setGithubUrl((current) => (current === githubParam ? current : githubParam))
+    setFindMode((current) => (current === findParam ? current : findParam))
+  }, [searchParams])
+
+  const handleGithubUrlChange = useCallback(
+    (value: string) => {
+      setGithubUrl(value)
+      const params = new URLSearchParams(searchParams)
+      if (value.trim()) {
+        params.set('github', value)
+      } else {
+        params.delete('github')
+      }
+      setSearchParams(params, { replace: true })
+      autoFetchRecord.current = null
+    },
+    [searchParams, setSearchParams],
+  )
+
+  const handleFindModeChange = useCallback(
+    (modeValue: 'manual' | 'auto') => {
+      setFindMode(modeValue)
+      const params = new URLSearchParams(searchParams)
+      if (modeValue === 'auto') {
+        params.set('find', 'auto')
+      } else {
+        params.delete('find')
+      }
+      setSearchParams(params, { replace: true })
+      autoFetchRecord.current = null
+    },
+    [searchParams, setSearchParams],
+  )
 
   const openCatalog = useCallback(
     async (option: CatalogOption) => {
@@ -107,76 +154,91 @@ function HomePage() {
     [catalog, openCatalog],
   )
 
-  const handleGithubSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      setError(null)
-      setStatusMessage(null)
-      setGithubWarning(null)
+  const executeGithubFetch = useCallback(async () => {
+    setError(null)
+    setStatusMessage(null)
+    setGithubWarning(null)
 
-      const reference = parseGithubRepo(githubUrl)
-      if (!reference) {
-        setError('Invalid GitHub repository reference.')
+    const reference = parseGithubRepo(githubUrl)
+    if (!reference) {
+      setError('Invalid GitHub repository reference.')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const result = await listGithubXcstrings(reference)
+      if (result.files.length === 0) {
+        setError('No .xcstrings files found in the specified repository.')
         return
       }
 
-      setIsLoading(true)
-      try {
-        const result = await listGithubXcstrings(reference)
-        if (result.files.length === 0) {
-          setError('No .xcstrings files found in the specified repository.')
-          return
+      const prefix = `github::${result.reference.owner}/${result.reference.repo}@${result.reference.branch}::`
+
+      const options: CatalogOption[] = result.files.map((file) => {
+        const label = file.relativePath
+        const description = `${result.reference.owner}/${result.reference.repo}@${result.reference.branch}/${file.path}`
+        return {
+          key: `${prefix}${file.path}`,
+          label,
+          origin: 'github',
+          description,
+          load: async () => {
+            const content = await fetchGithubFileContent(result.reference, file.path)
+            return { fileName: label, content }
+          },
         }
+      })
 
-        const prefix = `github::${result.reference.owner}/${result.reference.repo}@${result.reference.branch}::`
+      setCatalogOptions((prev) => {
+        const filtered = prev.filter((option) => !option.key.startsWith(prefix))
+        return [...filtered, ...options]
+      })
 
-        const options: CatalogOption[] = result.files.map((file) => {
-          const label = file.relativePath
-          const description = `${result.reference.owner}/${result.reference.repo}@${result.reference.branch}/${file.path}`
-          return {
-            key: `${prefix}${file.path}`,
-            label,
-            origin: 'github',
-            description,
-            load: async () => {
-              const content = await fetchGithubFileContent(result.reference, file.path)
-              return { fileName: label, content }
-            },
-          }
-        })
-
-        setCatalogOptions((prev) => {
-          const filtered = prev.filter((option) => !option.key.startsWith(prefix))
-          return [...filtered, ...options]
-        })
-
-        const shouldAutoOpen = !catalog && options.length === 1
-        if (!shouldAutoOpen) {
-          setStatusMessage(
-            `Found ${options.length} .xcstrings file${options.length === 1 ? '' : 's'} in ${result.reference.owner}/${result.reference.repo}.`,
-          )
-        }
-
-        if (result.truncated) {
-          setGithubWarning(
-            'GitHub returned a truncated file list. Narrow the search path if some files are missing.',
-          )
-        } else {
-          setGithubWarning(null)
-        }
-
-        if (shouldAutoOpen) {
-          await openCatalog(options[0])
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to query GitHub.'
-        setError(message)
-      } finally {
-        setIsLoading(false)
+      const shouldAutoOpen = !catalog && options.length === 1
+      if (!shouldAutoOpen) {
+        setStatusMessage(
+          `Found ${options.length} .xcstrings file${options.length === 1 ? '' : 's'} in ${result.reference.owner}/${result.reference.repo}.`,
+        )
       }
+
+      if (result.truncated) {
+        setGithubWarning(
+          'GitHub returned a truncated file list. Narrow the search path if some files are missing.',
+        )
+      } else {
+        setGithubWarning(null)
+      }
+
+      if (shouldAutoOpen) {
+        await openCatalog(options[0])
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to query GitHub.'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [catalog, githubUrl, openCatalog])
+
+  const handleGithubSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      await executeGithubFetch()
     },
-    [catalog, githubUrl, openCatalog],
+    [executeGithubFetch],
   )
+
+  const trimmedGithubUrl = githubUrl.trim()
+
+  useEffect(() => {
+    if (mode !== 'github') return
+    if (findMode !== 'auto') return
+    if (!trimmedGithubUrl) return
+    if (autoFetchRecord.current === trimmedGithubUrl) return
+    autoFetchRecord.current = trimmedGithubUrl
+    void executeGithubFetch()
+  }, [executeGithubFetch, findMode, mode, trimmedGithubUrl])
 
   const handleClearOptions = useCallback(() => {
     setCatalogOptions([])
@@ -239,19 +301,37 @@ function HomePage() {
             <form className="space-y-3" onSubmit={handleGithubSubmit}>
               <Input
                 value={githubUrl}
-                onChange={(event) => setGithubUrl(event.target.value)}
+                onChange={(event) => handleGithubUrlChange(event.target.value)}
                 placeholder="owner/repo, owner/repo@branch, or https://github.com/owner/repo"
                 disabled={isLoading}
               />
+              {/* <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={findMode === 'manual' ? 'default' : 'outline'}
+                  onClick={() => handleFindModeChange('manual')}
+                  disabled={isLoading}
+                >
+                  Find manually
+                </Button>
+                <Button
+                  type="button"
+                  variant={findMode === 'auto' ? 'default' : 'outline'}
+                  onClick={() => handleFindModeChange('auto')}
+                  disabled={isLoading}
+                >
+                  Auto find
+                </Button>
+              </div> */}
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" disabled={isLoading || githubUrl.trim() === ''}>
+                <Button type="submit" disabled={isLoading || trimmedGithubUrl === ''}>
                   Find files
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setGithubUrl('')}
-                  disabled={isLoading || githubUrl.trim() === ''}
+                  onClick={() => handleGithubUrlChange('')}
+                  disabled={isLoading || trimmedGithubUrl === ''}
                 >
                   Clear
                 </Button>
