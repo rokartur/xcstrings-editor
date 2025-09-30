@@ -3,6 +3,22 @@ import type { ReactNode } from 'react'
 
 import type { CatalogEntry, ParsedCatalog, XcStringsDocument } from './xcstrings'
 import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocale } from './xcstrings'
+import { applyJsonChanges, detectFormattingOptions } from './json-edit'
+
+export interface GithubCatalogSource {
+  type: 'github'
+  owner: string
+  repo: string
+  branch: string
+  path: string
+  sha: string
+}
+
+export interface UploadCatalogSource {
+  type: 'upload'
+}
+
+export type CatalogSource = GithubCatalogSource | UploadCatalogSource
 
 interface CatalogState extends ParsedCatalog {
   id: string
@@ -10,6 +26,8 @@ interface CatalogState extends ParsedCatalog {
   dirtyKeys: Set<string>
   originalDocument: XcStringsDocument
   originalContent: string
+  currentContent: string
+  source?: CatalogSource
 }
 
 export interface CatalogSummary {
@@ -26,7 +44,7 @@ interface CatalogContextValue {
     fileName: string,
     fileContent: string,
     originalContent?: string,
-    options?: { catalogId?: string },
+    options?: { catalogId?: string; source?: CatalogSource },
   ) => void
   loadCatalogById: (catalogId: string) => void
   removeCatalog: (catalogId: string) => void
@@ -48,6 +66,7 @@ interface StoredCatalogRecord {
   originalContent?: string
   timestamp: number
   lastOpened: number
+  source?: CatalogSource
 }
 
 interface StoredCatalogState {
@@ -68,6 +87,39 @@ function createCatalogId() {
     return crypto.randomUUID()
   }
   return `catalog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function normalizeSource(value: unknown): CatalogSource | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const source = value as { [key: string]: unknown }
+
+  if (source.type === 'github') {
+    const owner = typeof source.owner === 'string' ? source.owner : null
+    const repo = typeof source.repo === 'string' ? source.repo : null
+    const branch = typeof source.branch === 'string' ? source.branch : null
+    const path = typeof source.path === 'string' ? source.path : null
+    const sha = typeof source.sha === 'string' ? source.sha : null
+
+    if (owner && repo && branch && path && sha) {
+      return {
+        type: 'github',
+        owner,
+        repo,
+        branch,
+        path,
+        sha,
+      }
+    }
+  }
+
+  if (source.type === 'upload') {
+    return { type: 'upload' }
+  }
+
+  return undefined
 }
 
 function normalizeRecord(entry: Partial<StoredCatalogRecord>): StoredCatalogRecord | null {
@@ -99,6 +151,7 @@ function normalizeRecord(entry: Partial<StoredCatalogRecord>): StoredCatalogReco
     originalContent: typeof entry.originalContent === 'string' ? entry.originalContent : undefined,
     timestamp,
     lastOpened,
+    source: normalizeSource(entry.source),
   }
 }
 
@@ -295,7 +348,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       fileName: string,
       fileContent: string,
       originalContent?: string,
-      options?: { catalogId?: string },
+      options?: { catalogId?: string; source?: CatalogSource },
     ) => {
       const parsed = parseXcStrings(fileContent)
 
@@ -316,21 +369,26 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         originalDocument = structuredClone(parsed.document)
       }
 
-      const serializedDocument = serializeDocument(parsed.document)
+      const currentContent = fileContent
       const serializedOriginal = originalContent ?? serializeDocument(originalDocument)
       const dirtyKeys = calculateDirtyKeys(parsed.document, originalDocument)
       const catalogId = options?.catalogId ?? createCatalogId()
       const lastOpened = Date.now()
+      let resolvedSource = options?.source
 
       updateStoredState((state) => {
         const index = state.catalogs.findIndex((entry) => entry.id === catalogId)
+        if (!resolvedSource && index !== -1) {
+          resolvedSource = state.catalogs[index].source
+        }
         const nextRecord: StoredCatalogRecord = {
           id: catalogId,
           fileName,
-          content: serializedDocument,
+          content: currentContent,
           originalContent: serializedOriginal,
           timestamp: index === -1 ? lastOpened : state.catalogs[index].timestamp,
           lastOpened,
+          source: resolvedSource,
         }
 
         const nextCatalogs = index === -1
@@ -351,6 +409,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         dirtyKeys,
         originalDocument,
         originalContent: serializedOriginal,
+        currentContent,
+        source: resolvedSource,
       })
     },
     [updateStoredState],
@@ -403,7 +463,17 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           nextDirty.delete(key)
         }
 
-        const serializedContent = serializeDocument(nextDocument)
+        const formatting = detectFormattingOptions(current.currentContent)
+        const nextContent = applyJsonChanges(
+          current.currentContent,
+          [
+            {
+              path: ['strings', key],
+              value: nextDocument.strings[key],
+            },
+          ],
+          formatting,
+        )
 
         updateStoredState((state) => {
           const index = state.catalogs.findIndex((entry) => entry.id === current.id)
@@ -414,7 +484,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           const existing = state.catalogs[index]
           const updatedRecord: StoredCatalogRecord = {
             ...existing,
-            content: serializedContent,
+            content: nextContent,
           }
 
           const nextCatalogs = [...state.catalogs]
@@ -434,6 +504,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           dirtyKeys: nextDirty,
           originalDocument: current.originalDocument,
           originalContent: current.originalContent,
+          currentContent: nextContent,
         }
       })
     },
@@ -449,7 +520,10 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      setCatalogFromFile(record.fileName, record.content, record.originalContent, { catalogId })
+      setCatalogFromFile(record.fileName, record.content, record.originalContent, {
+        catalogId,
+        source: record.source,
+      })
     },
     [setCatalogFromFile],
   )
@@ -504,10 +578,9 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       return null
     }
 
-    const content = serializeDocument(catalog.document)
     return {
       fileName: catalog.fileName,
-      content,
+      content: catalog.currentContent,
     }
   }, [catalog])
 
@@ -527,6 +600,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
     setCatalogFromFile(record.fileName, record.content, record.originalContent, {
       catalogId: record.id,
+      source: record.source,
     })
   }, [setCatalogFromFile])
 

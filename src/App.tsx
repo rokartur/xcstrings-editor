@@ -80,7 +80,7 @@ function App() {
                   Export
                 </Button>
                 <Button variant="destructive" onClick={handleReset}>
-                  Reset
+                  Clear all
                 </Button>
               </>
             )}

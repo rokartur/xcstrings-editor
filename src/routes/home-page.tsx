@@ -9,17 +9,27 @@ import { Button } from '../components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card.tsx'
 import { Input } from '../components/ui/input.tsx'
 import { useCatalog } from '../lib/catalog-context.tsx'
-import { parseXcStrings } from '../lib/xcstrings.ts'
+import type { CatalogSource } from '../lib/catalog-context.tsx'
+import { parseXcStrings, resolveLocaleValue } from '../lib/xcstrings.ts'
 import { fetchGithubFileContent, listGithubXcstrings, parseGithubRepo } from '../lib/github.ts'
+import { publishCatalogToGithub } from '../lib/github-publish.ts'
+import type { GithubPublishStatus, PublishCatalogResult } from '../lib/github-publish.ts'
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
+
+type CatalogLoadResult = {
+  fileName: string
+  content: string
+  originalContent?: string
+  source?: CatalogSource
+}
 
 type CatalogOption = {
   key: string
   label: string
   origin: 'upload' | 'github'
   description?: string
-  load: () => Promise<{ fileName: string; content: string }>
+  load: () => Promise<CatalogLoadResult>
 }
 
 type UploadedFile = {
@@ -27,8 +37,18 @@ type UploadedFile = {
   content: string
 }
 
+const publishStatusLabels: Record<GithubPublishStatus, string> = {
+  'validating-token': 'Validating access token',
+  'creating-fork': 'Creating repository fork',
+  'waiting-for-fork': 'Waiting for fork to be ready',
+  'creating-branch': 'Preparing branch in fork',
+  'committing-changes': 'Uploading updated file',
+  'creating-pull-request': 'Opening pull request',
+}
+
 function HomePage() {
-  const { catalog, setCatalogFromFile, storedCatalogs, loadCatalogById, removeCatalog } = useCatalog()
+  const { catalog, setCatalogFromFile, storedCatalogs, loadCatalogById, removeCatalog, exportContent } =
+    useCatalog()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [mode, setMode] = useState<'upload' | 'github'>(() =>
@@ -44,7 +64,16 @@ function HomePage() {
   const [findMode, setFindMode] = useState<'manual' | 'auto'>(() =>
     searchParams.get('find') === 'auto' ? 'auto' : 'manual',
   )
+  const [githubToken, setGithubToken] = useState('')
+  const [publishStep, setPublishStep] = useState<GithubPublishStatus | null>(null)
+  const [publishResult, setPublishResult] = useState<PublishCatalogResult | null>(null)
+  const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null)
+  const [selectedPublishLocale, setSelectedPublishLocale] = useState('')
+  const [isPublishing, setIsPublishing] = useState(false)
   const autoFetchRecord = useRef<string | null>(null)
+  const githubSource = catalog?.source && catalog.source.type === 'github' ? catalog.source : null
+  const hasDirtyChanges = catalog ? catalog.dirtyKeys.size > 0 : false
+  const dirtyKeyCount = catalog?.dirtyKeys.size ?? 0
 
   useEffect(() => {
     const githubParam = searchParams.get('github') ?? ''
@@ -71,6 +100,38 @@ function HomePage() {
     [searchParams, setSearchParams],
   )
 
+  useEffect(() => {
+    setPublishResult(null)
+    setPublishErrorMessage(null)
+    setPublishStep(null)
+  }, [githubSource])
+
+  useEffect(() => {
+    if (!catalog) {
+      setSelectedPublishLocale('')
+      return
+    }
+
+    const { languages, document } = catalog
+
+    if (languages.length === 0) {
+      setSelectedPublishLocale('')
+      return
+    }
+
+    setSelectedPublishLocale((current) => {
+      if (current && languages.includes(current)) {
+        return current
+      }
+
+      if (document.sourceLanguage && languages.includes(document.sourceLanguage)) {
+        return document.sourceLanguage
+      }
+
+      return languages[0]
+    })
+  }, [catalog])
+
   const handleFindModeChange = useCallback(
     (modeValue: 'manual' | 'auto') => {
       setFindMode(modeValue)
@@ -92,8 +153,8 @@ function HomePage() {
       setStatusMessage(null)
       setIsLoading(true)
       try {
-        const { fileName, content } = await option.load()
-        setCatalogFromFile(fileName, content)
+        const { fileName, content, originalContent, source } = await option.load()
+        setCatalogFromFile(fileName, content, originalContent, { source })
         setSelectedOptionKey(option.key)
         setStatusMessage(`Loaded ${option.label}.`)
         setCatalogOptions((prev) => prev.filter((candidate) => candidate.key !== option.key))
@@ -127,7 +188,12 @@ function HomePage() {
             label: file.fileName,
             origin: 'upload',
             description: 'Uploaded manually',
-            load: async () => ({ fileName: file.fileName, content: file.content }),
+            load: async () => ({
+              fileName: file.fileName,
+              content: file.content,
+              originalContent: file.content,
+              source: { type: 'upload' },
+            }),
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Invalid .xcstrings file.'
@@ -187,7 +253,19 @@ function HomePage() {
           description,
           load: async () => {
             const content = await fetchGithubFileContent(result.reference, file.path)
-            return { fileName: label, content }
+            return {
+              fileName: label,
+              content,
+              originalContent: content,
+              source: {
+                type: 'github',
+                owner: result.reference.owner,
+                repo: result.reference.repo,
+                branch: result.reference.branch,
+                path: file.path,
+                sha: file.sha,
+              },
+            }
           },
         }
       })
@@ -258,6 +336,121 @@ function HomePage() {
     if (!locale) return
     navigate(`/locale/${locale}`)
   }
+
+  const handlePublishToGithub = useCallback(async () => {
+    if (!catalog || !githubSource) {
+      return
+    }
+
+    const trimmedToken = githubToken.trim()
+
+    if (!trimmedToken) {
+      setPublishErrorMessage('Paste a personal access token before publishing.')
+      return
+    }
+
+    if (!hasDirtyChanges) {
+      setPublishErrorMessage('There are no pending changes to publish.')
+      return
+    }
+
+    const exported = exportContent()
+
+    if (!exported) {
+      setPublishErrorMessage('Failed to export the catalog content.')
+      return
+    }
+
+    setPublishErrorMessage(null)
+    setPublishResult(null)
+    setPublishStep(null)
+    setIsPublishing(true)
+
+    const dirtyKeys = Array.from(catalog.dirtyKeys).sort()
+    const sampleKeys = dirtyKeys.slice(0, 10)
+
+    const changedLocales = new Set<string>()
+
+    for (const key of dirtyKeys) {
+      const currentEntry = catalog.document.strings[key]
+      const previousEntry = catalog.originalDocument.strings[key]
+
+      const locales = new Set<string>()
+
+      const addLocalesFromEntry = (entry: typeof currentEntry, sourceLanguage?: string) => {
+        if (sourceLanguage) {
+          locales.add(sourceLanguage)
+        }
+        if (entry?.localizations) {
+          for (const localeKey of Object.keys(entry.localizations)) {
+            if (localeKey.trim()) {
+              locales.add(localeKey)
+            }
+          }
+        }
+      }
+
+      addLocalesFromEntry(currentEntry, catalog.document.sourceLanguage)
+      addLocalesFromEntry(previousEntry, catalog.originalDocument.sourceLanguage)
+
+      for (const locale of locales) {
+        const nextValue = currentEntry
+          ? resolveLocaleValue(currentEntry, locale, catalog.document.sourceLanguage, key)
+          : ''
+        const previousValue = previousEntry
+          ? resolveLocaleValue(previousEntry, locale, catalog.originalDocument.sourceLanguage, key)
+          : ''
+
+        if (nextValue !== previousValue) {
+          changedLocales.add(locale)
+        }
+      }
+    }
+
+    const sortedLocales = Array.from(changedLocales).sort((a, b) => a.localeCompare(b))
+    const detectedLocaleDescriptor = sortedLocales.length > 0 ? sortedLocales.join(', ') : 'catalog'
+    const preferredLocale = selectedPublishLocale.trim()
+    const summaryDescriptor = preferredLocale
+      || (sortedLocales.length === 1 ? sortedLocales[0] : detectedLocaleDescriptor)
+      || 'catalog'
+
+    let pullRequestBody = `This pull request was created automatically via the [xcstrings.vercel.app](https://xcstrings.vercel.app) web application.\n\nUpdated file: ${catalog.fileName}`
+
+    if (sortedLocales.length > 0) {
+      pullRequestBody += `\nUpdated locale${sortedLocales.length === 1 ? '' : 's'}: ${detectedLocaleDescriptor}`
+    }
+
+    if (sampleKeys.length > 0) {
+      const bulletList = sampleKeys.map((key) => `- ${key}`).join('\n')
+      pullRequestBody += `\n\nModified keys:\n${bulletList}`
+
+      if (dirtyKeys.length > sampleKeys.length) {
+        pullRequestBody += `\n- ...and ${dirtyKeys.length - sampleKeys.length} more`
+      }
+    }
+
+    const summaryTitle = `chore(localization): update ${summaryDescriptor} translation`
+
+    try {
+      const result = await publishCatalogToGithub({
+        token: trimmedToken,
+        source: githubSource,
+        content: exported.content,
+        commitMessage: summaryTitle,
+        pullRequestTitle: summaryTitle,
+        pullRequestBody,
+        onStatus: (status) => setPublishStep(status),
+      })
+      setPublishResult(result)
+      setPublishStep(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to publish changes to GitHub.'
+      setPublishErrorMessage(message)
+      setPublishStep(null)
+    } finally {
+      setIsPublishing(false)
+    }
+  }, [catalog, exportContent, githubSource, githubToken, hasDirtyChanges, selectedPublishLocale])
 
   const formattedStoredCatalogs = useMemo(
     () =>
@@ -463,6 +656,126 @@ function HomePage() {
                   {language}
                 </Button>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {catalog && githubSource && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Publish to GitHub</CardTitle>
+            <CardDescription>
+              Fork {githubSource.owner}/{githubSource.repo} and open a pull request with your translated file.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="github-token">Personal access token</Label>
+              <Input
+                id="github-token"
+                type="password"
+                value={githubToken}
+                onChange={(event) => {
+                  if (publishErrorMessage) {
+                    setPublishErrorMessage(null)
+                  }
+                  setGithubToken(event.target.value)
+                }}
+                placeholder="ghp_..."
+                autoComplete="off"
+                disabled={isPublishing}
+              />
+              <p className="text-xs text-muted-foreground">
+                The token must include the <code>public_repo</code> scope (use <code>repo</code> for private repositories).
+                You can create one in{' '}
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=public_repo&description=xcstrings-editor"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  GitHub settings
+                </a>
+                . Tokens are only stored in memory while this page is open.
+              </p>
+            </div>
+
+            <LanguagePicker
+              languages={catalog.languages}
+              value={selectedPublishLocale}
+              onSelect={(locale) => setSelectedPublishLocale(locale)}
+              disabled={isPublishing}
+              placeholder="Select language for commit"
+              label="Language for commit & pull request"
+            />
+            <p className="text-xs text-muted-foreground">
+              The selected language appears in the generated commit message and pull request title.
+            </p>
+
+            <div className="space-y-1 rounded-md border border-muted bg-muted/5 p-3 text-xs text-muted-foreground">
+              <p>
+                Target repository: {githubSource.owner}/{githubSource.repo}@{githubSource.branch}
+              </p>
+              <p>File path: {githubSource.path}</p>
+              <p>Pending keys: {dirtyKeyCount}</p>
+            </div>
+
+            {publishStep && (
+              <div className="text-sm text-muted-foreground">
+                {publishStatusLabels[publishStep]}
+              </div>
+            )}
+
+            {publishErrorMessage && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {publishErrorMessage}
+              </div>
+            )}
+
+            {publishResult && (
+              <div className="space-y-1 rounded-md border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm text-green-700">
+                <p>
+                  Fork branch <code>{publishResult.forkOwner}:{publishResult.branchName}</code> is ready.
+                </p>
+                <p>
+                  <a href={publishResult.pullRequestUrl} target="_blank" rel="noreferrer" className="underline">
+                    View pull request
+                  </a>
+                </p>
+                <p>
+                  <a href={publishResult.forkUrl} target="_blank" rel="noreferrer" className="underline">
+                    View fork repository
+                  </a>
+                </p>
+              </div>
+            )}
+
+            {!hasDirtyChanges && (
+              <p className="text-xs text-muted-foreground">
+                There are no pending changes in this catalog. Update translations before publishing.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={handlePublishToGithub}
+                disabled={isPublishing || !hasDirtyChanges}
+              >
+                {isPublishing ? 'Publishing…' : 'Create fork & pull request'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setGithubToken('')
+                  setPublishErrorMessage(null)
+                }}
+                disabled={isPublishing || githubToken.trim() === ''}
+              >
+                Clear token
+              </Button>
             </div>
           </CardContent>
         </Card>
