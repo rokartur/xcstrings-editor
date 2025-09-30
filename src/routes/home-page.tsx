@@ -617,7 +617,7 @@ function HomePage() {
         onValueChange={(next: string) => handleModeChange(next as 'upload' | 'github')}
         className="w-full"
       >
-        <TabsList className="w-full justify-start">
+        <TabsList className="justify-start">
           <TabsTrigger value="upload">Manual upload</TabsTrigger>
           <TabsTrigger value="github">GitHub import</TabsTrigger>
         </TabsList>
