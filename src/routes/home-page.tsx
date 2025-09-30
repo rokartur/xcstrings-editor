@@ -37,6 +37,13 @@ type UploadedFile = {
   content: string
 }
 
+function encodeGithubPath(value: string) {
+  return value
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
 const publishStatusLabels: Record<GithubPublishStatus, string> = {
   'validating-token': 'Validating access token',
   'creating-fork': 'Creating repository fork',
@@ -414,7 +421,12 @@ function HomePage() {
       || (sortedLocales.length === 1 ? sortedLocales[0] : detectedLocaleDescriptor)
       || 'catalog'
 
-    let pullRequestBody = `This pull request was created automatically via the [xcstrings.vercel.app](https://xcstrings.vercel.app) web application.\n\nUpdated file: ${catalog.fileName}`
+    const fileLink = githubSource
+      ? `https://github.com/${encodeGithubPath(githubSource.owner)}/${encodeGithubPath(githubSource.repo)}/blob/${encodeGithubPath(githubSource.branch)}/${encodeGithubPath(githubSource.path)}`
+      : null
+    const fileReference = fileLink ? `[${catalog.fileName}](${fileLink})` : catalog.fileName
+
+    let pullRequestBody = `This pull request was created automatically via the [xcstrings.vercel.app](https://xcstrings.vercel.app) web application.\n\nUpdated file: ${fileReference}`
 
     if (sortedLocales.length > 0) {
       pullRequestBody += `\nUpdated locale${sortedLocales.length === 1 ? '' : 's'}: ${detectedLocaleDescriptor}`
