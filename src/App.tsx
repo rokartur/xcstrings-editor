@@ -3,8 +3,10 @@ import { Link, Outlet, useNavigate } from 'react-router-dom'
 
 import { Button, buttonVariants } from './components/ui/button.tsx'
 import { Badge } from './components/ui/badge.tsx'
+import { GithubStarsButton } from './components/github-stars.tsx'
 import { useCatalog } from './lib/catalog-context.tsx'
 import { useTheme } from './lib/theme-context.tsx'
+import { Moon, Sun } from 'lucide-react'
 
 function App() {
   const navigate = useNavigate()
@@ -61,12 +63,20 @@ function App() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <GithubStarsButton />
             <Button
               variant="outline"
+              size="icon"
               onClick={toggleTheme}
               aria-pressed={theme === 'dark'}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              {theme === 'dark' ? (
+                <Sun className="size-5" strokeWidth={1.6} aria-hidden="true" />
+              ) : (
+                <Moon className="size-5" strokeWidth={1.6} aria-hidden="true" />
+              )}
             </Button>
             {catalog && (
               <>
