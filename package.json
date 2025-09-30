@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --mode development",
     "build": "vite build --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "npm rebuild lightningcss --build-from-source"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",
