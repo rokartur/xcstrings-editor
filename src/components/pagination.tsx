@@ -43,13 +43,13 @@ export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
   const pages = createRange(page, pageCount)
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="text-sm text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-3 text-sm shadow-sm shadow-primary/5">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
         Page {page} of {pageCount}
       </div>
       <div className="flex items-center gap-1">
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={page === 1}
           onClick={() => onPageChange(page - 1)}
@@ -58,13 +58,14 @@ export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
         </Button>
         {pages.map((pageNumber, index) => {
           const isCurrent = pageNumber === page
-          const isEllipsis = index > 0 && pageNumber - pages[index - 1] > 1
+          const previousPage = index > 0 ? pages[index - 1] : undefined
+          const isEllipsis = previousPage !== undefined && pageNumber - previousPage > 1
 
           return (
             <div key={`${pageNumber}-${index}`} className="flex items-center">
               {isEllipsis && <span className="px-1 text-sm text-muted-foreground">…</span>}
               <Button
-                variant={isCurrent ? 'default' : 'ghost'}
+                variant={isCurrent ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => onPageChange(pageNumber)}
                 disabled={isCurrent}
@@ -75,7 +76,7 @@ export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
           )
         })}
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           disabled={page === pageCount}
           onClick={() => onPageChange(page + 1)}

@@ -17,30 +17,38 @@ interface TranslationTableProps {
 
 export function TranslationTable({ rows, locale, sourceLocale, onValueChange }: TranslationTableProps) {
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm shadow-primary/5">
       <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-64">Key</TableHead>
-            <TableHead>{`Source value (${sourceLocale})`}</TableHead>
-            <TableHead className="w-[40%]">{locale}</TableHead>
+        <TableHeader className="bg-muted/40">
+          <TableRow className="border-border/60">
+            <TableHead className="w-72 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+              Key
+            </TableHead>
+            <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+              {`Source value (${sourceLocale})`}
+            </TableHead>
+            <TableHead className="w-[42%] text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
+              {locale}
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.key} className="align-top">
-              <TableCell>
-                <div className="font-medium">{row.key}</div>
-                {row.comment && <p className="mt-1 text-xs text-muted-foreground">{row.comment}</p>}
+            <TableRow key={row.key} className="align-top last:border-0 hover:bg-muted/30">
+              <TableCell className="space-y-2">
+                <div className="font-medium text-foreground">{row.key}</div>
+                {row.comment && <p className="rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">{row.comment}</p>}
               </TableCell>
               <TableCell>
                 {row.sourceValue !== undefined ? (
                   row.sourceValue.length > 0 ? (
-                    <p className="whitespace-pre-line text-sm text-muted-foreground">{row.sourceValue}</p>
+                    <p className="whitespace-pre-line rounded-md bg-muted/20 p-3 text-sm text-muted-foreground">
+                      {row.sourceValue}
+                    </p>
                   ) : (
                     <p className="text-xs text-muted-foreground/70">No source value</p>
-                )
-              ) : (
+                  )
+                ) : (
                   <p className="text-xs text-muted-foreground/70">No data</p>
                 )}
               </TableCell>
@@ -48,6 +56,8 @@ export function TranslationTable({ rows, locale, sourceLocale, onValueChange }: 
                 <Textarea
                   value={row.value}
                   onChange={(event) => onValueChange(row.key, event.target.value)}
+                  placeholder="Type the translated copy here"
+                  className="min-h-[96px]"
                 />
               </TableCell>
             </TableRow>

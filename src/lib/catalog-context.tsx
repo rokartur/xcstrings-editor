@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import type { CatalogEntry, ParsedCatalog, XcStringsDocument } from './xcstrings'
 import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocale } from './xcstrings'
 import { applyJsonChanges, detectFormattingOptions } from './json-edit'
+import { formatLocaleCode } from './locale-options'
+import { addKnownRegion } from './pbxproj'
 
 export interface GithubCatalogSource {
   type: 'github'
@@ -20,14 +22,23 @@ export interface UploadCatalogSource {
 
 export type CatalogSource = GithubCatalogSource | UploadCatalogSource
 
+interface ProjectFileState {
+  path: string
+  currentContent: string
+  originalContent: string
+  dirty: boolean
+}
+
 interface CatalogState extends ParsedCatalog {
   id: string
   fileName: string
   dirtyKeys: Set<string>
+  documentDirty: boolean
   originalDocument: XcStringsDocument
   originalContent: string
   currentContent: string
   source?: CatalogSource
+  projectFile?: ProjectFileState
 }
 
 export interface CatalogSummary {
@@ -49,8 +60,12 @@ interface CatalogContextValue {
   loadCatalogById: (catalogId: string) => void
   removeCatalog: (catalogId: string) => void
   updateTranslation: (key: string, locale: string, value: string) => void
+  addLanguage: (locale: string) => void
   resetCatalog: () => void
   exportContent: () => { fileName: string; content: string } | null
+  attachProjectFile: (path: string, content: string, originalContent?: string) => void
+  updateProjectFilePath: (path: string) => void
+  exportProjectFile: () => { path: string; content: string } | null
 }
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined)
@@ -59,14 +74,22 @@ const STORAGE_KEY = 'xcstrings-editor-catalogs'
 const LEGACY_STORAGE_KEY = 'xcstrings-editor-catalog'
 const STORAGE_VERSION = 2
 
+interface StoredProjectFileRecord {
+  path: string
+  content: string
+  originalContent: string
+}
+
 interface StoredCatalogRecord {
   id: string
   fileName: string
   content: string
-  originalContent?: string
+  originalContent: string
   timestamp: number
   lastOpened: number
   source?: CatalogSource
+  projectFile?: StoredProjectFileRecord
+  documentDirty?: boolean
 }
 
 interface StoredCatalogState {
@@ -122,6 +145,27 @@ function normalizeSource(value: unknown): CatalogSource | undefined {
   return undefined
 }
 
+function normalizeProjectFileRecord(value: unknown): StoredProjectFileRecord | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const record = value as { [key: string]: unknown }
+  const path = typeof record.path === 'string' ? record.path.trim() : ''
+  const content = typeof record.content === 'string' ? record.content : null
+  const original = typeof record.originalContent === 'string' ? record.originalContent : content
+
+  if (!path || !content) {
+    return undefined
+  }
+
+  return {
+    path,
+    content,
+    originalContent: original ?? content,
+  }
+}
+
 function normalizeRecord(entry: Partial<StoredCatalogRecord>): StoredCatalogRecord | null {
   if (!entry || typeof entry !== 'object') {
     return null
@@ -143,16 +187,28 @@ function normalizeRecord(entry: Partial<StoredCatalogRecord>): StoredCatalogReco
 
   const timestamp = typeof entry.timestamp === 'number' ? entry.timestamp : Date.now()
   const lastOpened = typeof entry.lastOpened === 'number' ? entry.lastOpened : timestamp
+  const originalContent = typeof entry.originalContent === 'string' ? entry.originalContent : content
+  const source = normalizeSource(entry.source)
+  const projectFile = normalizeProjectFileRecord(entry.projectFile)
 
-  return {
+  const record: StoredCatalogRecord = {
     id,
     fileName,
     content,
-    originalContent: typeof entry.originalContent === 'string' ? entry.originalContent : undefined,
+    originalContent,
     timestamp,
     lastOpened,
-    source: normalizeSource(entry.source),
   }
+
+  if (source) {
+    record.source = source
+  }
+
+  if (projectFile) {
+    record.projectFile = projectFile
+  }
+
+  return record
 }
 
 function summariesFromRecords(records: StoredCatalogRecord[]): CatalogSummary[] {
@@ -200,7 +256,7 @@ function readStoredState(): StoredCatalogState {
           fileName: payload.fileName,
           content: payload.content,
           originalContent:
-            typeof payload.originalContent === 'string' ? payload.originalContent : undefined,
+            typeof payload.originalContent === 'string' ? payload.originalContent : payload.content,
           timestamp: typeof payload.timestamp === 'number' ? payload.timestamp : now,
           lastOpened: now,
         }
@@ -375,20 +431,44 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       const catalogId = options?.catalogId ?? createCatalogId()
       const lastOpened = Date.now()
       let resolvedSource = options?.source
+      let storedProjectFile: StoredProjectFileRecord | undefined
+      let storedDocumentDirty = false
 
       updateStoredState((state) => {
         const index = state.catalogs.findIndex((entry) => entry.id === catalogId)
-        if (!resolvedSource && index !== -1) {
-          resolvedSource = state.catalogs[index].source
+        const previous = index !== -1 ? state.catalogs[index] : undefined
+
+        if (!resolvedSource && previous?.source) {
+          resolvedSource = previous.source
         }
+
+        if (previous?.projectFile) {
+          storedProjectFile = previous.projectFile
+        }
+
+        if (previous?.documentDirty) {
+          storedDocumentDirty = true
+        }
+
         const nextRecord: StoredCatalogRecord = {
           id: catalogId,
           fileName,
           content: currentContent,
           originalContent: serializedOriginal,
-          timestamp: index === -1 ? lastOpened : state.catalogs[index].timestamp,
+          timestamp: previous ? previous.timestamp : lastOpened,
           lastOpened,
-          source: resolvedSource,
+        }
+
+        if (resolvedSource) {
+          nextRecord.source = resolvedSource
+        }
+
+        if (storedProjectFile) {
+          nextRecord.projectFile = storedProjectFile
+        }
+
+        if (storedDocumentDirty) {
+          nextRecord.documentDirty = true
         }
 
         const nextCatalogs = index === -1
@@ -402,16 +482,35 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         }
       })
 
-      setCatalog({
+      const projectFileState: ProjectFileState | undefined = storedProjectFile
+        ? {
+            path: storedProjectFile.path,
+            currentContent: storedProjectFile.content,
+            originalContent: storedProjectFile.originalContent,
+            dirty: storedProjectFile.content !== storedProjectFile.originalContent,
+          }
+        : undefined
+
+      const nextCatalog = {
         ...parsed,
         id: catalogId,
         fileName,
         dirtyKeys,
+        documentDirty: storedDocumentDirty,
         originalDocument,
         originalContent: serializedOriginal,
         currentContent,
-        source: resolvedSource,
-      })
+      } as CatalogState
+
+      if (resolvedSource) {
+        nextCatalog.source = resolvedSource
+      }
+
+      if (projectFileState) {
+        nextCatalog.projectFile = projectFileState
+      }
+
+      setCatalog(nextCatalog)
     },
     [updateStoredState],
   )
@@ -453,6 +552,9 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
         const nextDocument = structuredClone(current.document)
         const nextEntry = nextDocument.strings[key]
+        if (!nextEntry) {
+          return current
+        }
 
         setValueForLocale(nextEntry, locale, value)
 
@@ -481,10 +583,11 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
             return state
           }
 
-          const existing = state.catalogs[index]
+          const existing = state.catalogs[index]!
           const updatedRecord: StoredCatalogRecord = {
             ...existing,
             content: nextContent,
+            documentDirty: true,
           }
 
           const nextCatalogs = [...state.catalogs]
@@ -502,6 +605,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           document: nextDocument,
           entries: updateEntries(current.entries, key, locale, value),
           dirtyKeys: nextDirty,
+          documentDirty: true,
           originalDocument: current.originalDocument,
           originalContent: current.originalContent,
           currentContent: nextContent,
@@ -510,6 +614,249 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     },
     [updateEntries, updateStoredState],
   )
+
+  const addLanguage = useCallback(
+    (locale: string) => {
+      const formatted = formatLocaleCode(locale).trim()
+      if (!formatted) {
+        return
+      }
+
+      setCatalog((current) => {
+        if (!current) {
+          return current
+        }
+
+        const normalizedExisting = new Set(
+          current.languages.map((entry) => formatLocaleCode(entry).toLowerCase()),
+        )
+
+        if (normalizedExisting.has(formatted.toLowerCase())) {
+          return current
+        }
+
+        const nextLanguages = [...current.languages, formatted].sort((a, b) =>
+          a.localeCompare(b, 'en', { sensitivity: 'base' }),
+        )
+
+        const nextDocument = structuredClone(current.document)
+        const availableLocales = new Set(nextDocument.availableLocales ?? [])
+        availableLocales.add(formatted)
+        nextDocument.availableLocales = Array.from(availableLocales).sort((a, b) =>
+          a.localeCompare(b, 'en', { sensitivity: 'base' }),
+        )
+
+        if (nextDocument.strings) {
+          for (const entry of Object.values(nextDocument.strings)) {
+            if (!entry) continue
+            setValueForLocale(entry, formatted, '')
+          }
+        }
+
+        const nextEntries = current.entries.map((entry) => ({
+          ...entry,
+          values: {
+            ...entry.values,
+            [formatted]: '',
+          },
+        }))
+
+        const formatting = detectFormattingOptions(current.currentContent)
+        const changes = [
+          {
+            path: ['availableLocales'],
+            value: nextDocument.availableLocales,
+          },
+          ...Object.entries(nextDocument.strings ?? {}).map(([entryKey, entryValue]) => ({
+            path: ['strings', entryKey],
+            value: entryValue,
+          })),
+        ]
+
+        const nextContent = applyJsonChanges(current.currentContent, changes, formatting)
+
+        let nextProjectFileState = current.projectFile
+        let projectFileWasUpdated = false
+
+        if (current.projectFile) {
+          const projectUpdate = addKnownRegion(current.projectFile.currentContent, formatted)
+          if (projectUpdate.updated) {
+            projectFileWasUpdated = true
+            nextProjectFileState = {
+              ...current.projectFile,
+              currentContent: projectUpdate.content,
+              dirty: true,
+            }
+          }
+        }
+
+        const nextDirtyKeys = new Set(current.dirtyKeys)
+
+        updateStoredState((state) => {
+          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
+          if (index === -1) {
+            return state
+          }
+
+          const existing = state.catalogs[index]!
+          const updatedRecord: StoredCatalogRecord = {
+            ...existing,
+            content: nextContent,
+            documentDirty: true,
+          }
+
+          if (nextProjectFileState) {
+            updatedRecord.projectFile = {
+              path: nextProjectFileState.path,
+              content: nextProjectFileState.currentContent,
+              originalContent: nextProjectFileState.originalContent,
+            }
+          } else if (projectFileWasUpdated || existing.projectFile) {
+            delete updatedRecord.projectFile
+          }
+
+          const nextCatalogs = [...state.catalogs]
+          nextCatalogs[index] = updatedRecord
+
+          return {
+            ...state,
+            catalogs: nextCatalogs,
+          }
+        })
+
+        const nextState = {
+          ...current,
+          document: nextDocument,
+          currentContent: nextContent,
+          languages: nextLanguages,
+          entries: nextEntries,
+          dirtyKeys: nextDirtyKeys,
+          documentDirty: true,
+        } as CatalogState
+
+        if (nextProjectFileState) {
+          nextState.projectFile = nextProjectFileState
+        }
+
+        return nextState
+      })
+    },
+    [updateStoredState],
+  )
+
+  const attachProjectFile = useCallback(
+    (path: string, content: string, originalContent?: string) => {
+      const normalizedPath = path.trim() || 'project.pbxproj'
+      const currentContent = content
+      const initialContent = originalContent ?? content
+
+      setCatalog((current) => {
+        if (!current) {
+          return current
+        }
+
+        const nextProjectFile: ProjectFileState = {
+          path: normalizedPath,
+          currentContent,
+          originalContent: initialContent,
+          dirty: currentContent !== initialContent,
+        }
+
+        updateStoredState((state) => {
+          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
+          if (index === -1) {
+            return state
+          }
+
+          const existing = state.catalogs[index]!
+          const updatedRecord: StoredCatalogRecord = {
+            ...existing,
+            projectFile: {
+              path: normalizedPath,
+              content: currentContent,
+              originalContent: initialContent,
+            },
+          }
+
+          const nextCatalogs = [...state.catalogs]
+          nextCatalogs[index] = updatedRecord
+
+          return {
+            ...state,
+            catalogs: nextCatalogs,
+          }
+        })
+
+        return {
+          ...current,
+          projectFile: nextProjectFile,
+        }
+      })
+    },
+    [updateStoredState],
+  )
+
+  const updateProjectFilePath = useCallback(
+    (path: string) => {
+      const normalizedPath = path.trim()
+      if (!normalizedPath) {
+        return
+      }
+
+      setCatalog((current) => {
+        if (!current?.projectFile) {
+          return current
+        }
+
+        const nextProjectFile: ProjectFileState = {
+          ...current.projectFile,
+          path: normalizedPath,
+        }
+
+        updateStoredState((state) => {
+          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
+          if (index === -1) {
+            return state
+          }
+
+          const existing = state.catalogs[index]!
+          const updatedRecord: StoredCatalogRecord = {
+            ...existing,
+            projectFile: {
+              path: normalizedPath,
+              content: nextProjectFile.currentContent,
+              originalContent: nextProjectFile.originalContent,
+            },
+          }
+
+          const nextCatalogs = [...state.catalogs]
+          nextCatalogs[index] = updatedRecord
+
+          return {
+            ...state,
+            catalogs: nextCatalogs,
+          }
+        })
+
+        return {
+          ...current,
+          projectFile: nextProjectFile,
+        }
+      })
+    },
+    [updateStoredState],
+  )
+
+  const exportProjectFile = useCallback(() => {
+    if (!catalog?.projectFile) {
+      return null
+    }
+
+    return {
+      path: catalog.projectFile.path,
+      content: catalog.projectFile.currentContent,
+    }
+  }, [catalog])
 
   const loadCatalogById = useCallback(
     (catalogId: string) => {
@@ -520,10 +867,12 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      setCatalogFromFile(record.fileName, record.content, record.originalContent, {
-        catalogId,
-        source: record.source,
-      })
+      const options: { catalogId?: string; source?: CatalogSource } = { catalogId }
+      if (record.source) {
+        options.source = record.source
+      }
+
+      setCatalogFromFile(record.fileName, record.content, record.originalContent, options)
     },
     [setCatalogFromFile],
   )
@@ -598,10 +947,12 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    setCatalogFromFile(record.fileName, record.content, record.originalContent, {
-      catalogId: record.id,
-      source: record.source,
-    })
+    const options: { catalogId?: string; source?: CatalogSource } = { catalogId: record.id }
+    if (record.source) {
+      options.source = record.source
+    }
+
+    setCatalogFromFile(record.fileName, record.content, record.originalContent, options)
   }, [setCatalogFromFile])
 
   const value = useMemo<CatalogContextValue>(
@@ -612,10 +963,27 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       loadCatalogById,
       removeCatalog,
       updateTranslation,
+      addLanguage,
       resetCatalog,
       exportContent,
+      attachProjectFile,
+      updateProjectFilePath,
+      exportProjectFile,
     }),
-    [catalog, exportContent, loadCatalogById, removeCatalog, resetCatalog, setCatalogFromFile, storedCatalogs, updateTranslation],
+    [
+      addLanguage,
+      attachProjectFile,
+      catalog,
+      exportContent,
+      exportProjectFile,
+      loadCatalogById,
+      removeCatalog,
+      resetCatalog,
+      setCatalogFromFile,
+      storedCatalogs,
+      updateProjectFilePath,
+      updateTranslation,
+    ],
   )
 
   return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>

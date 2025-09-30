@@ -23,3 +23,16 @@ declare module 'virtual:pwa-register/react' {
 
   export function useRegisterSW(options?: RegisterSWOptions): void
 }
+
+declare module 'locale-codes' {
+  interface LocaleCodesEntry {
+    tag: string
+    name?: string
+    local?: string
+    location?: string
+  }
+
+  export const all: LocaleCodesEntry[]
+  export function getByTag(tag: string): LocaleCodesEntry | undefined
+  export function where(key: string, value: string): LocaleCodesEntry | undefined
+}

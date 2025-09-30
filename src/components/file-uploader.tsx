@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import type { ChangeEvent, DragEvent } from 'react'
 
+import { CloudUpload } from 'lucide-react'
+
 import { Button } from './ui/button.tsx'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card.tsx'
 import { cn } from '../lib/utils.ts'
@@ -53,10 +55,17 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Upload .xcstrings files</CardTitle>
-        <CardDescription>Supports translation catalogs exported from Xcode in JSON format.</CardDescription>
+    <Card className="overflow-hidden border border-primary/20 shadow-lg shadow-primary/10">
+      <CardHeader className="space-y-2">
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
+            <CloudUpload className="size-5" strokeWidth={1.8} aria-hidden="true" />
+          </span>
+          <div>
+            <CardTitle>Upload .xcstrings files</CardTitle>
+            <CardDescription>Drag & drop translation catalogs or browse from your computer.</CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div
@@ -69,13 +78,18 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           className={cn(
-            'flex h-44 flex-col items-center justify-center rounded-md border-2 border-dashed border-border text-center transition-colors',
-            isDragging ? 'border-ring bg-muted/40' : 'hover:border-ring',
+            'group relative flex h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-gradient-to-br from-muted/40 via-muted/20 to-background text-center transition-all',
+            isDragging ? 'border-primary/50 shadow-inner shadow-primary/20' : 'hover:border-primary/40 hover:shadow-md hover:shadow-primary/10',
             disabled && 'cursor-not-allowed opacity-50',
           )}
         >
-          <p className="text-sm font-medium">Drag & drop a file here or use the button below</p>
-          <p className="mt-2 text-xs text-muted-foreground">Accepted extensions: .xcstrings, .json</p>
+          <div className="flex flex-col items-center gap-2">
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+              Drop files to import
+            </span>
+            <p className="text-sm font-medium text-foreground">Drag & drop your .xcstrings files</p>
+            <p className="text-xs text-muted-foreground">You can drop multiple files and we&apos;ll queue them automatically.</p>
+          </div>
         </div>
         <input
           ref={inputRef}
@@ -87,9 +101,12 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
           disabled={disabled}
         />
       </CardContent>
-      <CardFooter>
+      <CardFooter className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs text-muted-foreground">
+          Accepted formats: <code>.xcstrings</code> or JSON exports from Xcode.
+        </div>
         <Button onClick={() => inputRef.current?.click()} disabled={disabled} className="w-full sm:w-auto">
-          Choose file
+          Browse files
         </Button>
       </CardFooter>
     </Card>

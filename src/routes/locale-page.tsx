@@ -3,6 +3,8 @@ import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-
 
 import { Pagination } from '@/components/pagination.tsx'
 import { TranslationTable } from '@/components/translation-table.tsx'
+import type { TranslationRow } from '@/components/translation-table.tsx'
+import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
 import { LanguagePicker } from '@/components/language-picker.tsx'
@@ -66,12 +68,22 @@ function LocalePage() {
     const startIndex = (currentPage - 1) * PAGE_SIZE
     const paginated = catalog.entries.slice(startIndex, startIndex + PAGE_SIZE)
 
-    return paginated.map((entry) => ({
-      key: entry.key,
-      value: entry.values[locale] ?? '',
-      sourceValue: sourceLocale ? entry.values[sourceLocale] ?? '' : undefined,
-      comment: entry.comment,
-    }))
+    return paginated.map<TranslationRow>((entry) => {
+      const row: TranslationRow = {
+        key: entry.key,
+        value: entry.values[locale] ?? '',
+      }
+
+      if (sourceLocale) {
+        row.sourceValue = entry.values[sourceLocale] ?? ''
+      }
+
+      if (typeof entry.comment === 'string' && entry.comment.length > 0) {
+        row.comment = entry.comment
+      }
+
+      return row
+    })
   }, [catalog.entries, currentPage, locale, sourceLocale])
 
   const handleLanguageChange = (nextLocale: string) => {
@@ -86,21 +98,60 @@ function LocalePage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Editing language: {locale}</CardTitle>
-          <CardDescription>
-            Showing keys {1 + (currentPage - 1) * PAGE_SIZE} –
-            {Math.min(currentPage * PAGE_SIZE, totalEntries)} of {totalEntries}.
-          </CardDescription>
+      <Card className="border-primary/20 shadow-lg shadow-primary/5">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <CardTitle className="text-lg sm:text-xl">Editing locale: {locale}</CardTitle>
+            <CardDescription>
+              Showing keys {1 + (currentPage - 1) * PAGE_SIZE} –
+              {Math.min(currentPage * PAGE_SIZE, totalEntries)} of {totalEntries} total entries.
+            </CardDescription>
+          </div>
+          <Badge variant="secondary" className="w-fit self-start text-xs">
+            Source reference: {sourceLocale ?? '—'}
+          </Badge>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[2fr,1fr]">
-          <LanguagePicker
-            languages={catalog.languages}
-            value={locale}
-            onSelect={handleLanguageChange}
-            label="Change language"
-          />
+        <CardContent className="grid gap-6 md:grid-cols-[2fr,1fr]">
+          <div className="space-y-3">
+            <LanguagePicker
+              languages={catalog.languages}
+              value={locale}
+              onSelect={handleLanguageChange}
+              label="Jump to another locale"
+              placeholder="Type to find locales"
+            />
+            <p className="text-xs text-muted-foreground">
+              Use the fuzzy combobox above to switch locales instantly. Press <kbd>Enter</kbd> to confirm or move with
+              the arrow keys while the list is open.
+            </p>
+          </div>
+          <div className="space-y-2 rounded-xl border border-dashed border-border/60 bg-muted/10 p-4 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between text-sm text-foreground">
+              <span>Locale</span>
+              <span className="font-semibold">{locale}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Source locale</span>
+              <span className="font-medium text-foreground/80">{sourceLocale ?? '—'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Entries in view</span>
+              <span className="font-medium text-foreground/80">{rows.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Catalog languages</span>
+              <span className="font-medium text-foreground/80">{catalog.languages.length}</span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => navigate('/')}
+            >
+              Back to overview
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
