@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { Pagination } from '@/components/pagination.tsx'
@@ -7,10 +7,59 @@ import type { TranslationRow } from '@/components/translation-table.tsx'
 import { Badge } from '@/components/ui/badge.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.tsx'
+import { Input } from '@/components/ui/input.tsx'
 import { LanguagePicker } from '@/components/language-picker.tsx'
 import { useCatalog } from '@/lib/catalog-context.tsx'
+import type { TranslationState, ExtractionState, CatalogEntry } from '@/lib/xcstrings.ts'
+import { cn } from '@/lib/utils.ts'
 
 const PAGE_SIZE = 15
+
+type StateFilter = 'all' | 'translated' | 'needs_review' | 'new' | 'stale' | 'untranslated'
+type ExtractionFilter = 'all' | 'manual' | 'extracted_with_value' | 'migrated' | 'stale_key'
+type TranslatableFilter = 'all' | 'yes' | 'no'
+
+function matchesFilters(
+  entry: CatalogEntry,
+  locale: string,
+  stateFilter: StateFilter,
+  extractionFilter: ExtractionFilter,
+  translatableFilter: TranslatableFilter,
+  searchQuery: string,
+): boolean {
+  // Translatable filter
+  if (translatableFilter === 'yes' && !entry.shouldTranslate) return false
+  if (translatableFilter === 'no' && entry.shouldTranslate) return false
+
+  // Extraction state filter
+  if (extractionFilter !== 'all') {
+    const target = extractionFilter === 'stale_key' ? 'stale' : extractionFilter
+    if (entry.extractionState !== target) return false
+  }
+
+  // Per-locale state filter
+  if (stateFilter !== 'all') {
+    const localeState = entry.states[locale]
+    if (stateFilter === 'untranslated') {
+      // "untranslated" = no value and state is not "translated"
+      const val = entry.values[locale] ?? ''
+      if (val.length > 0 || localeState === 'translated') return false
+    } else {
+      if (localeState !== stateFilter) return false
+    }
+  }
+
+  // Text search
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase()
+    const keyMatch = entry.key.toLowerCase().includes(q)
+    const valueMatch = (entry.values[locale] ?? '').toLowerCase().includes(q)
+    const commentMatch = (entry.comment ?? '').toLowerCase().includes(q)
+    if (!keyMatch && !valueMatch && !commentMatch) return false
+  }
+
+  return true
+}
 
 function LocalePage() {
   const { locale } = useParams<{ locale: string }>()
@@ -19,7 +68,25 @@ function LocalePage() {
   const pageParam = Number.parseInt(searchParams.get('page') ?? '1', 10)
   const pageFromParams = Number.isNaN(pageParam) ? 1 : pageParam
 
-  const { catalog, updateTranslation } = useCatalog()
+  const { catalog, catalogLoading, updateTranslation } = useCatalog()
+
+  // Filter state
+  const [stateFilter, setStateFilter] = useState<StateFilter>('all')
+  const [extractionFilter, setExtractionFilter] = useState<ExtractionFilter>('all')
+  const [translatableFilter, setTranslatableFilter] = useState<TranslatableFilter>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  if (catalogLoading) {
+    return (
+      <div className="flex items-center justify-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-6 py-12 text-sm text-primary">
+        <svg className="size-5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+        <span>Loading catalog…</span>
+      </div>
+    )
+  }
 
   if (!catalog) {
     return <Navigate to="/" replace />
@@ -29,7 +96,18 @@ function LocalePage() {
     return <Navigate to="/" replace />
   }
 
-  const totalEntries = catalog.entries.length
+  // Apply filters to get filtered entries
+  const filteredEntries = useMemo(() => {
+    if (!locale) return []
+    const hasAnyFilter = stateFilter !== 'all' || extractionFilter !== 'all' || translatableFilter !== 'all' || searchQuery.length > 0
+    if (!hasAnyFilter) return catalog.entries
+    return catalog.entries.filter((entry) =>
+      matchesFilters(entry, locale, stateFilter, extractionFilter, translatableFilter, searchQuery),
+    )
+  }, [catalog.entries, locale, stateFilter, extractionFilter, translatableFilter, searchQuery])
+
+  const totalEntries = filteredEntries.length
+  const totalUnfiltered = catalog.entries.length
   const pageCount = Math.max(1, Math.ceil(totalEntries / PAGE_SIZE))
   const currentPage = Math.min(Math.max(pageFromParams, 1), pageCount)
 
@@ -66,12 +144,15 @@ function LocalePage() {
 
   const rows = useMemo(() => {
     const startIndex = (currentPage - 1) * PAGE_SIZE
-    const paginated = catalog.entries.slice(startIndex, startIndex + PAGE_SIZE)
+    const paginated = filteredEntries.slice(startIndex, startIndex + PAGE_SIZE)
 
     return paginated.map<TranslationRow>((entry) => {
       const row: TranslationRow = {
         key: entry.key,
         value: entry.values[locale] ?? '',
+        state: entry.states[locale],
+        extractionState: entry.extractionState,
+        shouldTranslate: entry.shouldTranslate,
       }
 
       if (sourceLocale) {
@@ -84,7 +165,7 @@ function LocalePage() {
 
       return row
     })
-  }, [catalog.entries, currentPage, locale, sourceLocale])
+  }, [filteredEntries, currentPage, locale, sourceLocale])
 
   const handleLanguageChange = (nextLocale: string) => {
     if (!nextLocale) return
@@ -98,7 +179,7 @@ function LocalePage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-primary/20 shadow-lg shadow-primary/5">
+      <Card className="border-primary/20 shadow-sm">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <CardTitle className="text-lg sm:text-xl">Editing locale: {locale}</CardTitle>
@@ -147,7 +228,7 @@ function LocalePage() {
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/translate')}
             >
               Back to overview
             </Button>

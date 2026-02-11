@@ -55,7 +55,7 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
   }
 
   return (
-    <Card className="overflow-hidden border border-primary/20 shadow-lg shadow-primary/10">
+    <Card className="overflow-hidden border border-primary/20 shadow-sm">
       <CardHeader className="space-y-2">
         <div className="flex items-center gap-3">
           <span className="flex size-10 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
@@ -79,7 +79,7 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
           onDrop={onDrop}
           className={cn(
             'group relative flex h-48 flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-gradient-to-br from-muted/40 via-muted/20 to-background text-center transition-all',
-            isDragging ? 'border-primary/50 shadow-inner shadow-primary/20' : 'hover:border-primary/40 hover:shadow-md hover:shadow-primary/10',
+            isDragging ? 'border-primary/50 shadow-inner' : 'hover:border-primary/40 hover:shadow-md',
             disabled && 'cursor-not-allowed opacity-50',
           )}
         >

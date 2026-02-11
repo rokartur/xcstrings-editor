@@ -89,7 +89,7 @@ function DiffPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-primary/20 shadow-lg shadow-primary/5">
+      <Card className="border-primary/20 shadow-sm">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <CardTitle className="text-lg sm:text-xl">Changes overview</CardTitle>

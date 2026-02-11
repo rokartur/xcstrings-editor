@@ -1,47 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, Outlet, useNavigate } from 'react-router-dom'
 
-import { Button, buttonVariants } from './components/ui/button.tsx'
-import { Badge } from './components/ui/badge.tsx'
-import { GithubStarsButton } from './components/github-stars.tsx'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog.tsx'
-import { useCatalog } from './lib/catalog-context.tsx'
-import { useTheme } from './lib/theme-context.tsx'
-import { Moon, Sparkles, Sun } from 'lucide-react'
+import { Button, buttonVariants } from './components/ui/button'
+import { Badge } from './components/ui/badge'
+import { GithubStarsButton } from './components/github-stars'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './components/ui/dialog'
+import { useCatalog } from './lib/catalog-context'
+import { useTheme } from './lib/theme-context'
+import { Moon, Sun } from 'lucide-react'
 
 function App() {
   const navigate = useNavigate()
-  const { catalog, resetCatalog, exportContent } = useCatalog()
+  const { catalog, resetCatalog } = useCatalog()
   const { theme, toggleTheme } = useTheme()
   const [confirmResetOpen, setConfirmResetOpen] = useState(false)
 
   const dirtyCount = catalog ? catalog.dirtyKeys.size : 0
-
-  const downloadName = useMemo(() => {
-    if (!catalog) return null
-    if (!catalog.fileName.endsWith('.xcstrings')) {
-      return `${catalog.fileName}-edited.xcstrings`
-    }
-    const base = catalog.fileName.replace(/\.xcstrings$/i, '')
-    return `${base}-edited.xcstrings`
-  }, [catalog])
-
-  const handleDownload = () => {
-    const exported = exportContent()
-    if (!exported) {
-      return
-    }
-
-    const blob = new Blob([exported.content], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-
-    const link = document.createElement('a')
-    link.href = url
-    link.download = downloadName ?? 'catalog-edited.xcstrings'
-
-    link.click()
-    URL.revokeObjectURL(url)
-  }
 
   const handleReset = () => {
     setConfirmResetOpen(true)
@@ -123,9 +97,6 @@ function App() {
                 >
                   View diff
                 </Link>
-                <Button variant="outline" size="sm" onClick={handleDownload}>
-                  Export
-                </Button>
                 <Button variant="destructive" size="sm" onClick={handleReset}>
                   Reset
                 </Button>
@@ -135,32 +106,24 @@ function App() {
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
-        <section className="mb-8 flex flex-col gap-4 rounded-3xl border border-border/40 bg-card/70 p-6 shadow-lg shadow-primary/5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-2">
-            <Badge variant="secondary" className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs">
-              <Sparkles className="size-3" aria-hidden="true" />
-              New fuzzy locale picker
-            </Badge>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Translate Xcode catalogs faster</h1>
+        <section className="mb-8 flex flex-col gap-3 rounded-3xl border border-border/40 bg-card/70 px-6 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Translate Xcode catalogs faster</h1>
             <p className="max-w-xl text-sm text-muted-foreground">
-              Import .xcstrings files, edit translations with instant fuzzy search, and publish polished updates straight to GitHub without leaving your browser.
+              Import .xcstrings files, edit translations, and publish updates straight to GitHub.
             </p>
           </div>
           {catalog ? (
-            <div className="grid gap-2 rounded-2xl border border-border/60 bg-background/60 p-4 text-xs text-muted-foreground">
+            <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-foreground">{catalog.fileName}</span>
                 <Badge variant="outline">{catalog.languages.length} locales</Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>Pending keys</span>
-                <Badge variant={dirtyCount > 0 ? 'default' : 'outline'}>{dirtyCount}</Badge>
+                {dirtyCount > 0 && <Badge>{dirtyCount} changed</Badge>}
               </div>
             </div>
           ) : (
-            <div className="grid gap-2 rounded-2xl border border-dashed border-border/60 bg-background/60 p-4 text-sm text-muted-foreground">
-              <span>No catalog loaded yet.</span>
-              <span>Upload a file or connect to GitHub to get started.</span>
+            <div className="rounded-2xl border border-dashed border-border/60 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+              No catalog loaded yet.
             </div>
           )}
         </section>

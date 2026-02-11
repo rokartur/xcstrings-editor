@@ -16,6 +16,7 @@ export interface LocalizationRecord {
 export interface XcStringEntry {
   comment?: string
   extractionState?: string
+  shouldTranslate?: boolean
   localizations?: Record<string, LocalizationRecord>
 }
 
@@ -27,10 +28,28 @@ export interface XcStringsDocument {
   identifier?: string
 }
 
+/** Per-locale translation state as stored in stringUnit.state */
+export type TranslationState = 'translated' | 'needs_review' | 'new' | 'stale' | undefined
+
+/**
+ * Extraction state for the entire key (set by Xcode during build/extraction).
+ * - manual: user-added
+ * - extracted_with_value: extracted from source code with a default value
+ * - migrated: migrated from legacy .strings
+ * - stale: key no longer exists in source code
+ */
+export type ExtractionState = 'manual' | 'extracted_with_value' | 'migrated' | 'stale' | undefined
+
 export interface CatalogEntry {
   key: string
   comment?: string
   values: Record<string, string>
+  /** Per-locale stringUnit state */
+  states: Record<string, TranslationState>
+  /** Extraction state for the entire key */
+  extractionState: ExtractionState
+  /** Whether this key should be translated (false = skip, e.g. brand names) */
+  shouldTranslate: boolean
 }
 
 export interface ParsedCatalog {
@@ -41,6 +60,16 @@ export interface ParsedCatalog {
 
 const EMPTY_STRING = ''
 
+function resolveLocaleState(entry: XcStringEntry, locale: string): TranslationState {
+  const record = entry.localizations?.[locale]
+  if (!record) return undefined
+  const state = record.stringUnit?.state
+  if (state === 'translated' || state === 'needs_review' || state === 'new' || state === 'stale') {
+    return state
+  }
+  return undefined
+}
+
 function toCatalogEntry(
   key: string,
   entry: XcStringEntry,
@@ -48,15 +77,26 @@ function toCatalogEntry(
   sourceLanguage?: string,
 ): CatalogEntry {
   const values: Record<string, string> = {}
+  const states: Record<string, TranslationState> = {}
 
   for (const language of languages) {
     values[language] = resolveLocaleValue(entry, language, sourceLanguage, key)
+    states[language] = resolveLocaleState(entry, language)
+  }
+
+  const rawExtraction = entry.extractionState as string | undefined
+  let extractionState: ExtractionState
+  if (rawExtraction === 'manual' || rawExtraction === 'extracted_with_value' || rawExtraction === 'migrated' || rawExtraction === 'stale') {
+    extractionState = rawExtraction
   }
 
   return {
     key,
     comment: entry.comment,
     values,
+    states,
+    extractionState,
+    shouldTranslate: entry.shouldTranslate !== false, // default true
   }
 }
 

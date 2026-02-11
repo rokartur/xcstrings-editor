@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import type { CatalogEntry, ParsedCatalog, XcStringsDocument } from './xcstrings'
@@ -6,6 +6,8 @@ import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocal
 import { applyJsonChanges, detectFormattingOptions } from './json-edit'
 import { formatLocaleCode } from './locale-options'
 import { addKnownRegion } from './pbxproj'
+
+const STORAGE_DEBOUNCE_MS = 1500
 
 export interface GithubCatalogSource {
   type: 'github'
@@ -50,6 +52,7 @@ export interface CatalogSummary {
 
 interface CatalogContextValue {
   catalog: CatalogState | null
+  catalogLoading: boolean
   storedCatalogs: CatalogSummary[]
   setCatalogFromFile: (
     fileName: string,
@@ -386,20 +389,79 @@ function calculateDirtyKeys(document: XcStringsDocument, originalDocument: XcStr
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const [catalog, setCatalog] = useState<CatalogState | null>(null)
+  const [catalogLoading, setCatalogLoading] = useState(false)
   const [storedCatalogs, setStoredCatalogs] = useState<CatalogSummary[]>([])
+  const storageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingStorageState = useRef<StoredCatalogState | null>(null)
+
+  // Flush pending storage writes on unmount
+  useEffect(() => {
+    return () => {
+      if (storageTimerRef.current) {
+        clearTimeout(storageTimerRef.current)
+        if (pendingStorageState.current) {
+          writeStoredState(pendingStorageState.current)
+          pendingStorageState.current = null
+        }
+      }
+    }
+  }, [])
 
   const updateStoredState = useCallback(
-    (updater: (state: StoredCatalogState) => StoredCatalogState) => {
-      const currentState = readStoredState()
+    (updater: (state: StoredCatalogState) => StoredCatalogState, immediate?: boolean) => {
+      const currentState = pendingStorageState.current ?? readStoredState()
       const nextState = updater(currentState)
-      writeStoredState(nextState)
+      pendingStorageState.current = nextState
       setStoredCatalogs(summariesFromRecords(nextState.catalogs))
+
+      if (immediate) {
+        if (storageTimerRef.current) {
+          clearTimeout(storageTimerRef.current)
+          storageTimerRef.current = null
+        }
+        writeStoredState(nextState)
+        pendingStorageState.current = null
+      } else {
+        if (storageTimerRef.current) {
+          clearTimeout(storageTimerRef.current)
+        }
+        storageTimerRef.current = setTimeout(() => {
+          storageTimerRef.current = null
+          if (pendingStorageState.current) {
+            writeStoredState(pendingStorageState.current)
+            pendingStorageState.current = null
+          }
+        }, STORAGE_DEBOUNCE_MS)
+      }
+
       return nextState
     },
     [],
   )
 
   const setCatalogFromFile = useCallback(
+    (
+      fileName: string,
+      fileContent: string,
+      originalContent?: string,
+      options?: { catalogId?: string; source?: CatalogSource },
+    ) => {
+      // Show loading indicator and yield to the browser before heavy work
+      setCatalogLoading(true)
+
+      setTimeout(() => {
+        try {
+          _setCatalogFromFileSync(fileName, fileContent, originalContent, options)
+        } finally {
+          setCatalogLoading(false)
+        }
+      }, 0)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [updateStoredState],
+  )
+
+  const _setCatalogFromFileSync = useCallback(
     (
       fileName: string,
       fileContent: string,
@@ -427,7 +489,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
       const currentContent = fileContent
       const serializedOriginal = originalContent ?? serializeDocument(originalDocument)
-      const dirtyKeys = calculateDirtyKeys(parsed.document, originalDocument)
+      const dirtyKeys = new Set<string>()
       const catalogId = options?.catalogId ?? createCatalogId()
       const lastOpened = Date.now()
       let resolvedSource = options?.source
@@ -480,7 +542,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           currentId: catalogId,
           catalogs: nextCatalogs,
         }
-      })
+      }, true)
 
       const projectFileState: ProjectFileState | undefined = storedProjectFile
         ? {
@@ -511,6 +573,23 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       }
 
       setCatalog(nextCatalog)
+
+      // Defer dirty-key calculation to avoid blocking the main thread on large catalogs
+      const deferredOriginal = originalDocument
+      const deferredDocument = parsed.document
+      const deferredId = catalogId
+      const scheduleCalc = typeof requestIdleCallback === 'function'
+        ? requestIdleCallback
+        : (cb: () => void) => setTimeout(cb, 0)
+
+      scheduleCalc(() => {
+        const computed = calculateDirtyKeys(deferredDocument, deferredOriginal)
+        setCatalog((cur) => {
+          if (!cur || cur.id !== deferredId) return cur
+          if (computed.size === 0 && cur.dirtyKeys.size === 0) return cur
+          return { ...cur, dirtyKeys: computed }
+        })
+      })
     },
     [updateStoredState],
   )
@@ -537,6 +616,18 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // Track pending content serialization to debounce expensive JSON operations
+  const contentSerializationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Flush pending serialization on unmount
+  useEffect(() => {
+    return () => {
+      if (contentSerializationTimer.current) {
+        clearTimeout(contentSerializationTimer.current)
+      }
+    }
+  }, [])
+
   const updateTranslation = useCallback(
     (key: string, locale: string, value: string) => {
       setCatalog((current) => {
@@ -550,65 +641,76 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           return current
         }
 
-        const nextDocument = structuredClone(current.document)
-        const nextEntry = nextDocument.strings[key]
-        if (!nextEntry) {
-          return current
-        }
-
-        setValueForLocale(nextEntry, locale, value)
+        // Only clone the single entry being edited, not the entire document
+        const clonedEntry = structuredClone(entry)
+        setValueForLocale(clonedEntry, locale, value)
+        current.document.strings[key] = clonedEntry
 
         const nextDirty = new Set(current.dirtyKeys)
-        if (isEntryDirty(key, nextDocument, current.originalDocument)) {
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
           nextDirty.add(key)
         } else {
           nextDirty.delete(key)
         }
 
-        const formatting = detectFormattingOptions(current.currentContent)
-        const nextContent = applyJsonChanges(
-          current.currentContent,
-          [
-            {
-              path: ['strings', key],
-              value: nextDocument.strings[key],
-            },
-          ],
-          formatting,
-        )
+        // Debounce the expensive JSON content serialization
+        if (contentSerializationTimer.current) {
+          clearTimeout(contentSerializationTimer.current)
+        }
 
-        updateStoredState((state) => {
-          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
-          if (index === -1) {
-            return state
-          }
+        const catalogId = current.id
+        contentSerializationTimer.current = setTimeout(() => {
+          contentSerializationTimer.current = null
+          setCatalog((cur) => {
+            if (!cur || cur.id !== catalogId) return cur
 
-          const existing = state.catalogs[index]!
-          const updatedRecord: StoredCatalogRecord = {
-            ...existing,
-            content: nextContent,
-            documentDirty: true,
-          }
+            const formatting = detectFormattingOptions(cur.currentContent)
+            const nextContent = applyJsonChanges(
+              cur.currentContent,
+              [
+                {
+                  path: ['strings', key],
+                  value: cur.document.strings[key],
+                },
+              ],
+              formatting,
+            )
 
-          const nextCatalogs = [...state.catalogs]
-          nextCatalogs[index] = updatedRecord
+            updateStoredState((state) => {
+              const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
+              if (index === -1) {
+                return state
+              }
 
-          return {
-            version: STORAGE_VERSION,
-            currentId: current.id,
-            catalogs: nextCatalogs,
-          }
-        })
+              const existing = state.catalogs[index]!
+              const updatedRecord: StoredCatalogRecord = {
+                ...existing,
+                content: nextContent,
+                documentDirty: true,
+              }
+
+              const nextCatalogs = [...state.catalogs]
+              nextCatalogs[index] = updatedRecord
+
+              return {
+                version: STORAGE_VERSION,
+                currentId: cur.id,
+                catalogs: nextCatalogs,
+              }
+            })
+
+            return {
+              ...cur,
+              currentContent: nextContent,
+            }
+          })
+        }, 500)
 
         return {
           ...current,
-          document: nextDocument,
           entries: updateEntries(current.entries, key, locale, value),
           dirtyKeys: nextDirty,
           documentDirty: true,
-          originalDocument: current.originalDocument,
-          originalContent: current.originalContent,
-          currentContent: nextContent,
         }
       })
     },
@@ -639,20 +741,15 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           a.localeCompare(b, 'en', { sensitivity: 'base' }),
         )
 
-        const nextDocument = structuredClone(current.document)
-        const availableLocales = new Set(nextDocument.availableLocales ?? [])
+        // Update availableLocales on the existing document in-place (lightweight)
+        const availableLocales = new Set(current.document.availableLocales ?? [])
         availableLocales.add(formatted)
-        nextDocument.availableLocales = Array.from(availableLocales).sort((a, b) =>
+        current.document.availableLocales = Array.from(availableLocales).sort((a, b) =>
           a.localeCompare(b, 'en', { sensitivity: 'base' }),
         )
 
-        if (nextDocument.strings) {
-          for (const entry of Object.values(nextDocument.strings)) {
-            if (!entry) continue
-            setValueForLocale(entry, formatted, '')
-          }
-        }
-
+        // Add empty values for the new locale to each entry's values map
+        // This is fast — we only add one key to existing objects, no deep clone
         const nextEntries = current.entries.map((entry) => ({
           ...entry,
           values: {
@@ -661,27 +758,12 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           },
         }))
 
-        const formatting = detectFormattingOptions(current.currentContent)
-        const changes = [
-          {
-            path: ['availableLocales'],
-            value: nextDocument.availableLocales,
-          },
-          ...Object.entries(nextDocument.strings ?? {}).map(([entryKey, entryValue]) => ({
-            path: ['strings', entryKey],
-            value: entryValue,
-          })),
-        ]
-
-        const nextContent = applyJsonChanges(current.currentContent, changes, formatting)
-
+        // Handle project file synchronously (pbxproj is small)
         let nextProjectFileState = current.projectFile
-        let projectFileWasUpdated = false
 
         if (current.projectFile) {
           const projectUpdate = addKnownRegion(current.projectFile.currentContent, formatted)
           if (projectUpdate.updated) {
-            projectFileWasUpdated = true
             nextProjectFileState = {
               ...current.projectFile,
               currentContent: projectUpdate.content,
@@ -690,53 +772,91 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const nextDirtyKeys = new Set(current.dirtyKeys)
-
-        updateStoredState((state) => {
-          const index = state.catalogs.findIndex((entry) => entry.id === current.id)
-          if (index === -1) {
-            return state
-          }
-
-          const existing = state.catalogs[index]!
-          const updatedRecord: StoredCatalogRecord = {
-            ...existing,
-            content: nextContent,
-            documentDirty: true,
-          }
-
-          if (nextProjectFileState) {
-            updatedRecord.projectFile = {
-              path: nextProjectFileState.path,
-              content: nextProjectFileState.currentContent,
-              originalContent: nextProjectFileState.originalContent,
-            }
-          } else if (projectFileWasUpdated || existing.projectFile) {
-            delete updatedRecord.projectFile
-          }
-
-          const nextCatalogs = [...state.catalogs]
-          nextCatalogs[index] = updatedRecord
-
-          return {
-            ...state,
-            catalogs: nextCatalogs,
-          }
-        })
-
         const nextState = {
           ...current,
-          document: nextDocument,
-          currentContent: nextContent,
           languages: nextLanguages,
           entries: nextEntries,
-          dirtyKeys: nextDirtyKeys,
+          dirtyKeys: new Set(current.dirtyKeys),
           documentDirty: true,
         } as CatalogState
 
         if (nextProjectFileState) {
           nextState.projectFile = nextProjectFileState
         }
+
+        // Defer ALL heavy work: document mutation, JSON serialization, storage
+        const catalogId = current.id
+        const scheduleHeavyWork = typeof requestIdleCallback === 'function'
+          ? requestIdleCallback
+          : (cb: () => void) => setTimeout(cb, 0)
+
+        scheduleHeavyWork(() => {
+          setCatalog((cur) => {
+            if (!cur || cur.id !== catalogId) return cur
+
+            // Mutate document entries in-place (no structuredClone of entire doc)
+            const doc = cur.document
+            if (doc.strings) {
+              for (const entry of Object.values(doc.strings)) {
+                if (!entry) continue
+                setValueForLocale(entry, formatted, '')
+              }
+            }
+
+            // Full serialization is MUCH faster than 900+ individual jsonc-parser
+            // modify calls. Each modify() re-parses the entire JSON string, so with
+            // 900 keys the O(n²) cost freezes the browser for minutes.
+            const formatting = detectFormattingOptions(cur.currentContent)
+            const indent = formatting.insertSpaces
+              ? ' '.repeat(formatting.tabSize ?? 2)
+              : '\t'
+            let nextContent = JSON.stringify(doc, null, indent)
+            // Preserve trailing newline if the original had one
+            if (cur.currentContent.endsWith('\n') && !nextContent.endsWith('\n')) {
+              nextContent += '\n'
+            }
+            // Preserve EOL style (CRLF vs LF)
+            if (formatting.eol === '\r\n' && !nextContent.includes('\r\n')) {
+              nextContent = nextContent.replace(/\n/g, '\r\n')
+            }
+
+            // Persist to storage
+            updateStoredState((state) => {
+              const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
+              if (index === -1) {
+                return state
+              }
+
+              const existing = state.catalogs[index]!
+              const updatedRecord: StoredCatalogRecord = {
+                ...existing,
+                content: nextContent,
+                documentDirty: true,
+              }
+
+              if (cur.projectFile) {
+                updatedRecord.projectFile = {
+                  path: cur.projectFile.path,
+                  content: cur.projectFile.currentContent,
+                  originalContent: cur.projectFile.originalContent,
+                }
+              }
+
+              const nextCatalogs = [...state.catalogs]
+              nextCatalogs[index] = updatedRecord
+
+              return {
+                ...state,
+                catalogs: nextCatalogs,
+              }
+            })
+
+            return {
+              ...cur,
+              currentContent: nextContent,
+            }
+          })
+        })
 
         return nextState
       })
@@ -927,6 +1047,30 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       return null
     }
 
+    // If there's a pending content serialization, generate fresh content now
+    if (catalog.documentDirty && contentSerializationTimer.current) {
+      clearTimeout(contentSerializationTimer.current)
+      contentSerializationTimer.current = null
+
+      // Full serialization instead of 900+ individual jsonc-parser patches
+      const formatting = detectFormattingOptions(catalog.currentContent)
+      const indent = formatting.insertSpaces
+        ? ' '.repeat(formatting.tabSize ?? 2)
+        : '\t'
+      let freshContent = JSON.stringify(catalog.document, null, indent)
+      if (catalog.currentContent.endsWith('\n') && !freshContent.endsWith('\n')) {
+        freshContent += '\n'
+      }
+      if (formatting.eol === '\r\n' && !freshContent.includes('\r\n')) {
+        freshContent = freshContent.replace(/\n/g, '\r\n')
+      }
+
+      return {
+        fileName: catalog.fileName,
+        content: freshContent,
+      }
+    }
+
     return {
       fileName: catalog.fileName,
       content: catalog.currentContent,
@@ -958,6 +1102,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const value = useMemo<CatalogContextValue>(
     () => ({
       catalog,
+      catalogLoading,
       storedCatalogs,
       setCatalogFromFile,
       loadCatalogById,
@@ -974,6 +1119,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       addLanguage,
       attachProjectFile,
       catalog,
+      catalogLoading,
       exportContent,
       exportProjectFile,
       loadCatalogById,

@@ -1,4 +1,7 @@
-import { Button } from './ui/button.tsx'
+import { useCallback, useState, type ChangeEvent } from 'react'
+
+import { Button } from './ui/button'
+import { Input } from './ui/input'
 
 interface PaginationProps {
   page: number
@@ -36,6 +39,16 @@ function createRange(page: number, pageCount: number) {
 }
 
 export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
+  const [goToValue, setGoToValue] = useState('')
+
+  const handleGoTo = useCallback(() => {
+    const parsed = Number.parseInt(goToValue, 10)
+    if (Number.isNaN(parsed)) return
+    const safe = Math.min(Math.max(parsed, 1), pageCount)
+    onPageChange(safe)
+    setGoToValue('')
+  }, [goToValue, pageCount, onPageChange])
+
   if (pageCount <= 1) {
     return null
   }
@@ -43,9 +56,37 @@ export function Pagination({ page, pageCount, onPageChange }: PaginationProps) {
   const pages = createRange(page, pageCount)
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-3 text-sm shadow-sm shadow-primary/5">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        Page {page} of {pageCount}
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-3 text-sm shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+          Page {page} of {pageCount}
+        </span>
+        <form
+          className="flex items-center gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault()
+            handleGoTo()
+          }}
+        >
+          <Input
+            type="number"
+            min={1}
+            max={pageCount}
+            value={goToValue}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setGoToValue(e.target.value)}
+            placeholder="#"
+            className="h-7 w-16 px-2 text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={!goToValue.trim()}
+          >
+            Go
+          </Button>
+        </form>
       </div>
       <div className="flex items-center gap-1">
         <Button
