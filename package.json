@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --mode development",
-    "build": "vite build --mode production",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "postinstall": "npm rebuild lightningcss --build-from-source"
+    "start": "vite preview --host 0.0.0.0 --port 80"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",

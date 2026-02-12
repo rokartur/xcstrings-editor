@@ -8,6 +8,9 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 
 export default defineConfig(({ mode }) => {
 	return {
+    preview: {
+      allowedHosts: ['xcstrings.ovh'],
+    },
 		plugins: [
 			tailwindcss(),
 			react({

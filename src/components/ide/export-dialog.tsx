@@ -19,6 +19,7 @@ import type { GithubCatalogSource } from '@/lib/catalog-context'
 import { useEditorStore } from '@/lib/editor-store'
 import { publishCatalogToGithub } from '@/lib/github-publish'
 import type { GithubPublishStatus, PublishCatalogResult } from '@/lib/github-publish'
+import { cn } from '@/lib/utils'
 import { resolveLocaleValue } from '@/lib/xcstrings'
 
 function encodeGithubPath(value: string) {
@@ -43,6 +44,7 @@ export function ExportDialog() {
   const [publishResult, setPublishResult] = useState<PublishCatalogResult | null>(null)
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null)
   const [selectedPublishLocale, setSelectedPublishLocale] = useState('')
+  const [mode, setMode] = useState<'download' | 'github'>('download')
   const [isPublishing, setIsPublishing] = useState(false)
 
   const githubSource: GithubCatalogSource | null =
@@ -55,6 +57,10 @@ export function ExportDialog() {
     setPublishErrorMessage(null)
     setPublishStep(null)
   }, [githubSource])
+
+  useEffect(() => {
+    if (!githubSource && mode === 'github') setMode('download')
+  }, [githubSource, mode])
 
   useEffect(() => {
     if (!catalog) { setSelectedPublishLocale(''); return }
@@ -171,39 +177,71 @@ export function ExportDialog() {
 
   return (
     <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-hidden p-0">
+      <DialogContent className="max-h-[85vh] max-w-xl overflow-hidden p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>Export or publish</DialogTitle>
           <DialogDescription>Download or publish {catalog.fileName}.</DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[calc(85vh-100px)] px-6 pb-6">
           <div className="grid gap-4 pt-2">
-            {/* Download section */}
-            <div className="space-y-3">
-              <p className="text-sm font-medium">Download</p>
-              <div className="space-y-1 rounded-lg border border-border/60 bg-muted/10 p-3 text-xs text-muted-foreground">
-                <p>File: <span className="font-medium text-foreground">{catalog.fileName}</span></p>
-                <p>Keys: <span className="font-medium text-foreground">{catalog.entries.length}</span></p>
-                <p>Languages: <span className="font-medium text-foreground">{catalog.languages.join(', ')}</span></p>
-                <p>Pending: <span className="font-medium text-foreground">{dirtyKeyCount}</span></p>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleDownloadCatalog} className="gap-1.5">
-                  <Download className="size-4" />
-                  Download .xcstrings
-                </Button>
-                {catalog.projectFile?.dirty && (
-                  <Button variant="outline" onClick={handleDownloadProjectFile} className="gap-1.5">
-                    <Download className="size-4" />
-                    Download .pbxproj
-                  </Button>
+            <div className="flex w-full overflow-hidden rounded-md border border-border/60 bg-muted/10 p-0.5">
+              <button
+                type="button"
+                onClick={() => setMode('download')}
+                className={cn(
+                  'flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
+                  mode === 'download'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
-              </div>
+              >
+                Download
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!githubSource) return
+                  setMode('github')
+                  setPublishErrorMessage(null)
+                }}
+                disabled={!githubSource}
+                className={cn(
+                  'flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                  mode === 'github'
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                GitHub
+              </button>
             </div>
 
-            {/* GitHub publish section */}
-            {githubSource && (
-              <div className="space-y-3 border-t border-border pt-4">
+            {mode === 'download' && (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Download</p>
+                <div className="space-y-1 rounded-lg border border-border/60 bg-muted/10 p-3 text-xs text-muted-foreground">
+                  <p>File: <span className="font-medium text-foreground">{catalog.fileName}</span></p>
+                  <p>Keys: <span className="font-medium text-foreground">{catalog.entries.length}</span></p>
+                  <p>Languages: <span className="font-medium text-foreground">{catalog.languages.join(', ')}</span></p>
+                  <p>Pending: <span className="font-medium text-foreground">{dirtyKeyCount}</span></p>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleDownloadCatalog} className="gap-1.5">
+                    <Download className="size-4" />
+                    Download .xcstrings
+                  </Button>
+                  {catalog.projectFile?.dirty && (
+                    <Button variant="outline" onClick={handleDownloadProjectFile} className="gap-1.5">
+                      <Download className="size-4" />
+                      Download .pbxproj
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {mode === 'github' && githubSource && (
+              <div className="space-y-3">
                 <p className="text-sm font-medium">Publish to GitHub</p>
                 <p className="text-xs text-muted-foreground">
                   Fork {githubSource.owner}/{githubSource.repo} and open a pull request.

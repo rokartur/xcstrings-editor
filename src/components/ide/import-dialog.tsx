@@ -305,7 +305,7 @@ export function ImportDialog() {
 
   return (
     <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-      <DialogContent className="max-h-[85vh] max-w-xl overflow-hidden p-0">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>Import catalog</DialogTitle>
           <DialogDescription>
@@ -552,21 +552,21 @@ export function ImportDialog() {
                   <div className="space-y-2">
                     <div className="overflow-hidden rounded-lg border border-border/60">
                       {formattedStoredCatalogs.map((item) => (
-                        <div key={item.id} className="flex items-center gap-2 border-b border-border/60 p-2 last:border-b-0">
+                        <div key={item.id} className="flex items-start gap-2 border-b border-border/60 p-2 last:border-b-0">
                           <Button
                             variant={currentCatalogId === item.id ? 'default' : 'outline'}
-                            className="flex-1 justify-between text-left"
+                            className="h-auto min-h-0 flex-1 items-start justify-between py-2 text-left"
                             onClick={() => loadCatalogById(item.id)}
                             disabled={isLoading}
                           >
-                            <div className="flex min-w-0 flex-col items-start">
-                              <span className="truncate font-medium">{item.fileName}</span>
+                            <div className="flex min-w-0 flex-1 flex-col items-start pr-2">
+                              <span className="w-full truncate font-medium">{item.fileName}</span>
                               <span className="text-xs text-muted-foreground">
                                 Last opened: {item.formattedLastOpened}
                               </span>
                             </div>
                             {currentCatalogId === item.id && (
-                              <span className="ml-3 text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <span className="mt-0.5 ml-2 shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
                                 Active
                               </span>
                             )}
@@ -574,6 +574,7 @@ export function ImportDialog() {
                           <Button
                             size="sm"
                             variant="ghost"
+                            className="mt-0.5"
                             onClick={() => removeCatalog(item.id)}
                             disabled={isLoading}
                           >

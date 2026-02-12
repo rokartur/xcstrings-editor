@@ -109,7 +109,7 @@ export function AddLanguageDialog() {
 
   return (
     <Dialog open={addLanguageDialogOpen} onOpenChange={setAddLanguageDialogOpen}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Add language</DialogTitle>
           <DialogDescription>
