@@ -32,6 +32,10 @@ export default defineConfig(({ mode }) => {
 				workbox: {
 					globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
 					navigateFallback: 'index.html',
+					// Important: don't treat static SEO files as SPA navigations.
+					// If Workbox returns index.html for /sitemap.xml, React Router will
+					// hit the wildcard route and client-side redirect to '/'.
+					navigateFallbackDenylist: [/^\/sitemap\.xml$/i, /^\/robots\.txt$/i],
 				},
 				devOptions: {
 					enabled: true,
