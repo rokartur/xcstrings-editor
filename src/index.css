@@ -125,4 +125,10 @@
   button {
     cursor: pointer;
   }
+
+  /* Prevent Radix ScrollArea's internal table-display wrapper from expanding
+     beyond the viewport width, which causes horizontal content overflow. */
+  [data-radix-scroll-area-viewport] > div {
+    display: block !important;
+  }
 }

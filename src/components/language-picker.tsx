@@ -2,7 +2,6 @@ import { useEffect, useId, useMemo, useState } from 'react'
 
 import { Check, ChevronsUpDown, Sparkles } from 'lucide-react'
 import Fuse from 'fuse.js'
-import type { FuseResult } from 'fuse.js'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command.tsx'
@@ -36,7 +35,7 @@ type LanguageOption = {
   keywords: string
 }
 
-const MAX_SUGGESTIONS = 12
+const MAX_RESULTS = 200
 
 export function LanguagePicker({
   languages,
@@ -73,12 +72,13 @@ export function LanguagePicker({
 
   const suggestions = useMemo(() => {
     if (query.trim().length === 0) {
-      return options.slice(0, MAX_SUGGESTIONS)
+      // Show all options (up to a safe cap) and let the CommandList scroll.
+      return options.slice(0, MAX_RESULTS)
     }
     return fuse
       .search(query.trim())
-      .map((result: FuseResult<LanguageOption>) => result.item)
-      .slice(0, MAX_SUGGESTIONS)
+      .map((result) => result.item)
+      .slice(0, MAX_RESULTS)
   }, [fuse, options, query])
 
   const activeOption = value ? options.find((option) => option.code === value) : null
@@ -119,7 +119,10 @@ export function LanguagePicker({
             role="combobox"
             aria-expanded={open}
             disabled={disabled || languages.length === 0}
-            className={cn('h-11 w-full justify-between rounded-md px-3 py-2 text-left', disabled && 'opacity-60')}
+            className={cn(
+              'h-8 w-full justify-between rounded-lg px-2.5 text-left text-sm',
+              disabled && 'opacity-60',
+            )}
           >
             <span className="truncate">
               {activeOption ? `${activeOption.label} (${activeOption.code})` : placeholder}
@@ -135,7 +138,12 @@ export function LanguagePicker({
               placeholder="Type to search locales..."
               autoFocus
             />
-            <CommandList>
+            <CommandList
+              // When used inside scrollable dialogs/panels, prevent the parent from
+              // stealing the wheel/trackpad scroll from this list.
+              onWheelCapture={(e) => e.stopPropagation()}
+              onTouchMoveCapture={(e) => e.stopPropagation()}
+            >
               <CommandEmpty>No languages found.</CommandEmpty>
               <CommandGroup heading="Matches">
                 {suggestions.map((option: LanguageOption) => (

@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import type { CatalogEntry, ParsedCatalog, XcStringsDocument } from './xcstrings'
+import type { CatalogEntry, ExtractionState, ParsedCatalog, TranslationState, XcStringEntry, XcStringsDocument } from './xcstrings'
 import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocale } from './xcstrings'
 import { applyJsonChanges, detectFormattingOptions } from './json-edit'
 import { formatLocaleCode } from './locale-options'
-import { addKnownRegion } from './pbxproj'
+import { addKnownRegion, removeKnownRegion } from './pbxproj'
 
 const STORAGE_DEBOUNCE_MS = 1500
 
@@ -54,6 +54,12 @@ interface CatalogContextValue {
   catalog: CatalogState | null
   catalogLoading: boolean
   storedCatalogs: CatalogSummary[]
+  storeCatalog: (
+    fileName: string,
+    fileContent: string,
+    originalContent?: string,
+    source?: CatalogSource,
+  ) => string
   setCatalogFromFile: (
     fileName: string,
     fileContent: string,
@@ -63,7 +69,12 @@ interface CatalogContextValue {
   loadCatalogById: (catalogId: string) => void
   removeCatalog: (catalogId: string) => void
   updateTranslation: (key: string, locale: string, value: string) => void
+  updateTranslationComment: (key: string, locale: string, comment: string) => void
   addLanguage: (locale: string) => void
+  removeLanguage: (locale: string) => void
+  restoreKey: (key: string) => void
+  restoreField: (key: string, locale: string) => void
+  restoreAllChanges: () => void
   resetCatalog: () => void
   exportContent: () => { fileName: string; content: string } | null
   attachProjectFile: (path: string, content: string, originalContent?: string) => void
@@ -360,6 +371,13 @@ function isEntryDirty(
   const locales = collectLocalesForKey(key, document, originalDocument)
 
   for (const locale of locales) {
+    const currentLocalizationComment = currentEntry.localizations?.[locale]?.comment ?? ''
+    const originalLocalizationComment = originalEntry.localizations?.[locale]?.comment ?? ''
+
+    if (currentLocalizationComment !== originalLocalizationComment) {
+      return true
+    }
+
     const currentValue = resolveLocaleValue(currentEntry, locale, document.sourceLanguage, key)
     const previousValue = resolveLocaleValue(originalEntry, locale, originalDocument.sourceLanguage, key)
 
@@ -385,6 +403,52 @@ function calculateDirtyKeys(document: XcStringsDocument, originalDocument: XcStr
   }
 
   return dirty
+}
+
+function resolveLocaleState(entry: XcStringEntry, locale: string): TranslationState {
+  const record = entry.localizations?.[locale]
+  if (!record) return undefined
+  const state = record.stringUnit?.state
+  if (state === 'translated' || state === 'needs_review' || state === 'new' || state === 'stale') {
+    return state
+  }
+  return undefined
+}
+
+function normalizeExtractionState(value: unknown): ExtractionState {
+  if (value === 'manual' || value === 'extracted_with_value' || value === 'migrated' || value === 'stale') {
+    return value
+  }
+  return undefined
+}
+
+function buildCatalogEntryFromDocument(
+  key: string,
+  entry: XcStringEntry,
+  locales: string[],
+  sourceLanguage?: string,
+): CatalogEntry {
+  const values: Record<string, string> = {}
+  const states: Record<string, TranslationState> = {}
+
+  for (const locale of locales) {
+    values[locale] = resolveLocaleValue(entry, locale, sourceLanguage, key)
+    states[locale] = resolveLocaleState(entry, locale)
+  }
+
+  const result: CatalogEntry = {
+    key,
+    values,
+    states,
+    extractionState: normalizeExtractionState(entry.extractionState),
+    shouldTranslate: entry.shouldTranslate !== false,
+  }
+
+  if (typeof entry.comment === 'string' && entry.comment.length > 0) {
+    result.comment = entry.comment
+  }
+
+  return result
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
@@ -437,6 +501,46 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       return nextState
     },
     [],
+  )
+
+  const storeCatalog = useCallback(
+    (
+      fileName: string,
+      fileContent: string,
+      originalContent?: string,
+      source?: CatalogSource,
+    ) => {
+      const catalogId = createCatalogId()
+      const now = Date.now()
+      const serializedOriginal = originalContent ?? fileContent
+
+      updateStoredState(
+        (state) => {
+          const nextRecord: StoredCatalogRecord = {
+            id: catalogId,
+            fileName,
+            content: fileContent,
+            originalContent: serializedOriginal,
+            timestamp: now,
+            lastOpened: now,
+          }
+
+          if (source) {
+            nextRecord.source = source
+          }
+
+          return {
+            version: STORAGE_VERSION,
+            currentId: state.currentId,
+            catalogs: [...state.catalogs, nextRecord],
+          }
+        },
+        true,
+      )
+
+      return catalogId
+    },
+    [updateStoredState],
   )
 
   const setCatalogFromFile = useCallback(
@@ -717,6 +821,112 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [updateEntries, updateStoredState],
   )
 
+  const updateTranslationComment = useCallback(
+    (key: string, locale: string, comment: string) => {
+      setCatalog((current) => {
+        if (!current) return current
+
+        const entry = current.document.strings[key]
+        if (!entry) return current
+
+        const clonedEntry = structuredClone(entry)
+        if (!clonedEntry.localizations) {
+          clonedEntry.localizations = {}
+        }
+        if (!clonedEntry.localizations[locale]) {
+          clonedEntry.localizations[locale] = {}
+        }
+
+        const trimmed = comment.trimEnd()
+        if (trimmed.length === 0) {
+          // Remove empty comments to keep output clean.
+          if (clonedEntry.localizations[locale].comment !== undefined) {
+            delete clonedEntry.localizations[locale].comment
+          }
+        } else {
+          clonedEntry.localizations[locale].comment = trimmed
+        }
+
+        // Clean up empty localization record (if it has no comment/stringUnit/variations)
+        const loc = clonedEntry.localizations[locale]
+        if (loc && !loc.comment && !loc.stringUnit && !loc.variations) {
+          delete clonedEntry.localizations[locale]
+        }
+        if (clonedEntry.localizations && Object.keys(clonedEntry.localizations).length === 0) {
+          delete clonedEntry.localizations
+        }
+
+        current.document.strings[key] = clonedEntry
+
+        const nextDirty = new Set(current.dirtyKeys)
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
+          nextDirty.add(key)
+        } else {
+          nextDirty.delete(key)
+        }
+
+        if (contentSerializationTimer.current) {
+          clearTimeout(contentSerializationTimer.current)
+        }
+
+        const catalogId = current.id
+        contentSerializationTimer.current = setTimeout(() => {
+          contentSerializationTimer.current = null
+          setCatalog((cur) => {
+            if (!cur || cur.id !== catalogId) return cur
+
+            const formatting = detectFormattingOptions(cur.currentContent)
+            const nextContent = applyJsonChanges(
+              cur.currentContent,
+              [
+                {
+                  path: ['strings', key],
+                  value: cur.document.strings[key],
+                },
+              ],
+              formatting,
+            )
+
+            updateStoredState((state) => {
+              const index = state.catalogs.findIndex((record) => record.id === cur.id)
+              if (index === -1) return state
+
+              const existing = state.catalogs[index]!
+              const updatedRecord: StoredCatalogRecord = {
+                ...existing,
+                content: nextContent,
+                documentDirty: true,
+              }
+
+              const nextCatalogs = [...state.catalogs]
+              nextCatalogs[index] = updatedRecord
+
+              return {
+                version: STORAGE_VERSION,
+                currentId: cur.id,
+                catalogs: nextCatalogs,
+              }
+            })
+
+            return {
+              ...cur,
+              currentContent: nextContent,
+            }
+          })
+        }, 500)
+
+        return {
+          ...current,
+          // Force derived editor rows to refresh even though values didn't change.
+          entries: [...current.entries],
+          dirtyKeys: nextDirty,
+          documentDirty: true,
+        }
+      })
+    },
+    [updateStoredState],
+  )
+
   const addLanguage = useCallback(
     (locale: string) => {
       const formatted = formatLocaleCode(locale).trim()
@@ -863,6 +1073,433 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     },
     [updateStoredState],
   )
+
+  const removeLanguage = useCallback(
+    (locale: string) => {
+      const formatted = formatLocaleCode(locale).trim()
+      if (!formatted) {
+        return
+      }
+
+      setCatalog((current) => {
+        if (!current) {
+          return current
+        }
+
+        // Don't allow removing the source language — Xcode expects it to exist.
+        if (current.document.sourceLanguage && formatLocaleCode(current.document.sourceLanguage).toLowerCase() === formatted.toLowerCase()) {
+          return current
+        }
+
+        const normalizedTarget = formatted.toLowerCase()
+        const nextLanguages = current.languages.filter(
+          (entry) => formatLocaleCode(entry).toLowerCase() !== normalizedTarget,
+        )
+
+        if (nextLanguages.length === current.languages.length) {
+          return current
+        }
+
+        // Update availableLocales on the existing document in-place (lightweight)
+        const availableLocales = new Set(current.document.availableLocales ?? [])
+        for (const entry of Array.from(availableLocales)) {
+          if (formatLocaleCode(entry).toLowerCase() === normalizedTarget) {
+            availableLocales.delete(entry)
+          }
+        }
+        current.document.availableLocales = Array.from(availableLocales).sort((a, b) =>
+          a.localeCompare(b, 'en', { sensitivity: 'base' }),
+        )
+
+        // Remove values for the locale from each entry's values/states map
+        const nextEntries = current.entries.map((entry) => {
+          // Fast path: if the locale isn't present, keep as-is
+          if (!(formatted in entry.values) && !(locale in entry.values)) {
+            // Still may exist in different casing; do a cheap check
+            const has = Object.keys(entry.values).some(
+              (k) => formatLocaleCode(k).toLowerCase() === normalizedTarget,
+            )
+            if (!has) {
+              return entry
+            }
+          }
+
+          const nextValues: Record<string, string> = {}
+          for (const [key, val] of Object.entries(entry.values)) {
+            if (formatLocaleCode(key).toLowerCase() === normalizedTarget) {
+              continue
+            }
+            nextValues[key] = val
+          }
+
+          const nextStates: Record<string, TranslationState> = {}
+          for (const [key, val] of Object.entries(entry.states)) {
+            if (formatLocaleCode(key).toLowerCase() === normalizedTarget) {
+              continue
+            }
+            nextStates[key] = val
+          }
+
+          return {
+            ...entry,
+            values: nextValues,
+            states: nextStates,
+          }
+        })
+
+        // Handle project file synchronously (pbxproj is small)
+        let nextProjectFileState = current.projectFile
+
+        if (current.projectFile) {
+          const projectUpdate = removeKnownRegion(current.projectFile.currentContent, formatted)
+          if (projectUpdate.updated) {
+            nextProjectFileState = {
+              ...current.projectFile,
+              currentContent: projectUpdate.content,
+              dirty: true,
+            }
+          }
+        }
+
+        const nextState = {
+          ...current,
+          languages: nextLanguages,
+          entries: nextEntries,
+          dirtyKeys: new Set(current.dirtyKeys),
+          documentDirty: true,
+        } as CatalogState
+
+        if (nextProjectFileState) {
+          nextState.projectFile = nextProjectFileState
+        }
+
+        // Defer heavy work: document mutation, full serialization, storage
+        const catalogId = current.id
+        const scheduleHeavyWork = typeof requestIdleCallback === 'function'
+          ? requestIdleCallback
+          : (cb: () => void) => setTimeout(cb, 0)
+
+        scheduleHeavyWork(() => {
+          setCatalog((cur) => {
+            if (!cur || cur.id !== catalogId) return cur
+
+            // Mutate document entries in-place: drop locale localizations
+            const doc = cur.document
+
+            if (Array.isArray(doc.availableLocales)) {
+              doc.availableLocales = doc.availableLocales.filter(
+                (entry) => formatLocaleCode(entry).toLowerCase() !== normalizedTarget,
+              )
+            }
+
+            if (doc.strings) {
+              for (const entry of Object.values(doc.strings)) {
+                if (!entry || typeof entry !== 'object') continue
+                if (!entry.localizations) continue
+
+                for (const loc of Object.keys(entry.localizations)) {
+                  if (formatLocaleCode(loc).toLowerCase() === normalizedTarget) {
+                    delete entry.localizations[loc]
+                  }
+                }
+
+                if (entry.localizations && Object.keys(entry.localizations).length === 0) {
+                  delete entry.localizations
+                }
+              }
+            }
+
+            const formatting = detectFormattingOptions(cur.currentContent)
+            const indent = formatting.insertSpaces
+              ? ' '.repeat(formatting.tabSize ?? 2)
+              : '\t'
+            let nextContent = JSON.stringify(doc, null, indent)
+            if (cur.currentContent.endsWith('\n') && !nextContent.endsWith('\n')) {
+              nextContent += '\n'
+            }
+            if (formatting.eol === '\r\n' && !nextContent.includes('\r\n')) {
+              nextContent = nextContent.replace(/\n/g, '\r\n')
+            }
+
+            updateStoredState((state) => {
+              const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
+              if (index === -1) {
+                return state
+              }
+
+              const existing = state.catalogs[index]!
+              const updatedRecord: StoredCatalogRecord = {
+                ...existing,
+                content: nextContent,
+                documentDirty: true,
+              }
+
+              if (cur.projectFile) {
+                updatedRecord.projectFile = {
+                  path: cur.projectFile.path,
+                  content: cur.projectFile.currentContent,
+                  originalContent: cur.projectFile.originalContent,
+                }
+              }
+
+              const nextCatalogs = [...state.catalogs]
+              nextCatalogs[index] = updatedRecord
+
+              return {
+                ...state,
+                catalogs: nextCatalogs,
+              }
+            })
+
+            return {
+              ...cur,
+              currentContent: nextContent,
+            }
+          })
+        })
+
+        return nextState
+      })
+    },
+    [updateStoredState],
+  )
+
+  const persistDocumentPatch = useCallback(
+    (catalogId: string, patchKey: string | null, patchValue: unknown) => {
+      if (contentSerializationTimer.current) {
+        clearTimeout(contentSerializationTimer.current)
+      }
+
+      contentSerializationTimer.current = setTimeout(() => {
+        contentSerializationTimer.current = null
+
+        setCatalog((cur) => {
+          if (!cur || cur.id !== catalogId) return cur
+
+          const formatting = detectFormattingOptions(cur.currentContent)
+          const nextContent = patchKey
+            ? applyJsonChanges(
+                cur.currentContent,
+                [{ path: ['strings', patchKey], value: patchValue }],
+                formatting,
+              )
+            : (() => {
+                const indent = formatting.insertSpaces
+                  ? ' '.repeat(formatting.tabSize ?? 2)
+                  : '\t'
+                let serialized = JSON.stringify(cur.document, null, indent)
+                if (cur.currentContent.endsWith('\n') && !serialized.endsWith('\n')) {
+                  serialized += '\n'
+                }
+                if (formatting.eol === '\r\n' && !serialized.includes('\r\n')) {
+                  serialized = serialized.replace(/\n/g, '\r\n')
+                }
+                return serialized
+              })()
+
+          updateStoredState((state) => {
+            const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
+            if (index === -1) {
+              return state
+            }
+
+            const existing = state.catalogs[index]!
+            const updatedRecord: StoredCatalogRecord = {
+              ...existing,
+              content: nextContent,
+              documentDirty: true,
+            }
+
+            if (cur.projectFile) {
+              updatedRecord.projectFile = {
+                path: cur.projectFile.path,
+                content: cur.projectFile.currentContent,
+                originalContent: cur.projectFile.originalContent,
+              }
+            }
+
+            const nextCatalogs = [...state.catalogs]
+            nextCatalogs[index] = updatedRecord
+
+            return {
+              ...state,
+              catalogs: nextCatalogs,
+            }
+          })
+
+          return {
+            ...cur,
+            currentContent: nextContent,
+          }
+        })
+      }, 250)
+    },
+    [updateStoredState],
+  )
+
+  const restoreKey = useCallback(
+    (key: string) => {
+      setCatalog((current) => {
+        if (!current) return current
+
+        const originalEntry = current.originalDocument.strings[key]
+
+        if (!originalEntry) {
+          // Key didn't exist originally — remove it.
+          if (current.document.strings[key]) {
+            delete current.document.strings[key]
+          } else {
+            return current
+          }
+        } else {
+          current.document.strings[key] = structuredClone(originalEntry)
+        }
+
+        const nextDirty = new Set(current.dirtyKeys)
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
+          nextDirty.add(key)
+        } else {
+          nextDirty.delete(key)
+        }
+
+        let nextEntries = current.entries
+
+        if (!originalEntry) {
+          nextEntries = current.entries.filter((e) => e.key !== key)
+        } else {
+          const rebuilt = buildCatalogEntryFromDocument(
+            key,
+            originalEntry,
+            current.languages,
+            current.document.sourceLanguage,
+          )
+          const idx = current.entries.findIndex((e) => e.key === key)
+          if (idx === -1) {
+            nextEntries = [...current.entries, rebuilt].sort((a, b) => a.key.localeCompare(b.key))
+          } else {
+            nextEntries = current.entries.slice()
+            nextEntries[idx] = rebuilt
+          }
+        }
+
+        const catalogId = current.id
+        persistDocumentPatch(catalogId, key, originalEntry ? originalEntry : undefined)
+
+        return {
+          ...current,
+          entries: nextEntries,
+          dirtyKeys: nextDirty,
+          documentDirty: true,
+        }
+      })
+    },
+    [persistDocumentPatch],
+  )
+
+  const restoreField = useCallback(
+    (key: string, locale: string) => {
+      const formattedLocale = formatLocaleCode(locale).trim() || locale
+
+      setCatalog((current) => {
+        if (!current) return current
+
+        const currentEntry = current.document.strings[key]
+        if (!currentEntry) return current
+
+        const originalEntry = current.originalDocument.strings[key]
+
+        const nextEntry = structuredClone(currentEntry)
+
+        if (!originalEntry) {
+          // Key didn't exist originally: restoring a field means clearing the locale override.
+          if (nextEntry.localizations?.[formattedLocale]) {
+            delete nextEntry.localizations[formattedLocale]
+          }
+        } else {
+          const originalLocalization = originalEntry.localizations?.[formattedLocale]
+          if (originalLocalization) {
+            if (!nextEntry.localizations) {
+              nextEntry.localizations = {}
+            }
+            nextEntry.localizations[formattedLocale] = structuredClone(originalLocalization)
+          } else {
+            if (nextEntry.localizations?.[formattedLocale]) {
+              delete nextEntry.localizations[formattedLocale]
+            }
+          }
+        }
+
+        if (nextEntry.localizations && Object.keys(nextEntry.localizations).length === 0) {
+          delete nextEntry.localizations
+        }
+
+        current.document.strings[key] = nextEntry
+
+        const nextDirty = new Set(current.dirtyKeys)
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
+          nextDirty.add(key)
+        } else {
+          nextDirty.delete(key)
+        }
+
+        const nextEntries = current.entries.map((entry) => {
+          if (entry.key !== key) return entry
+
+          const nextValues = {
+            ...entry.values,
+            [formattedLocale]: resolveLocaleValue(nextEntry, formattedLocale, current.document.sourceLanguage, key),
+          }
+
+          const nextStates = {
+            ...entry.states,
+            [formattedLocale]: resolveLocaleState(nextEntry, formattedLocale),
+          }
+          return {
+            ...entry,
+            values: nextValues,
+            states: nextStates,
+          }
+        })
+
+        const catalogId = current.id
+        persistDocumentPatch(catalogId, key, nextEntry)
+
+        return {
+          ...current,
+          entries: nextEntries,
+          dirtyKeys: nextDirty,
+          documentDirty: true,
+        }
+      })
+    },
+    [persistDocumentPatch],
+  )
+
+  const restoreAllChanges = useCallback(() => {
+    setCatalog((current) => {
+      if (!current) return current
+
+      // Restore document strings back to the original.
+      current.document = structuredClone(current.originalDocument)
+
+      const rebuiltEntries = Object.entries(current.document.strings)
+        .map(([key, entry]) => buildCatalogEntryFromDocument(key, entry, current.languages, current.document.sourceLanguage))
+        .sort((a, b) => a.key.localeCompare(b.key))
+
+      const nextDirty = new Set<string>()
+
+      const catalogId = current.id
+      // Persist full content via serialization.
+      persistDocumentPatch(catalogId, null, null)
+
+      return {
+        ...current,
+        entries: rebuiltEntries,
+        dirtyKeys: nextDirty,
+        documentDirty: true,
+      }
+    })
+  }, [persistDocumentPatch])
 
   const attachProjectFile = useCallback(
     (path: string, content: string, originalContent?: string) => {
@@ -1018,7 +1655,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           currentId: nextCurrentId,
           catalogs: nextCatalogs,
         }
-      })
+      }, true)
 
       return null
     })
@@ -1037,7 +1674,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           currentId: nextCurrentId,
           catalogs: nextCatalogs,
         }
-      })
+      }, true)
     },
     [updateStoredState],
   )
@@ -1104,11 +1741,17 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       catalog,
       catalogLoading,
       storedCatalogs,
+      storeCatalog,
       setCatalogFromFile,
       loadCatalogById,
       removeCatalog,
       updateTranslation,
+      updateTranslationComment,
       addLanguage,
+      removeLanguage,
+      restoreKey,
+      restoreField,
+      restoreAllChanges,
       resetCatalog,
       exportContent,
       attachProjectFile,
@@ -1124,11 +1767,17 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       exportProjectFile,
       loadCatalogById,
       removeCatalog,
+      removeLanguage,
+      restoreField,
+      restoreAllChanges,
+      restoreKey,
       resetCatalog,
       setCatalogFromFile,
+      storeCatalog,
       storedCatalogs,
       updateProjectFilePath,
       updateTranslation,
+      updateTranslationComment,
     ],
   )
 

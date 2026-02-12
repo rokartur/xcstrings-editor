@@ -16,9 +16,10 @@ interface FileUploaderProps {
   onFilesLoaded: (files: LoadedFile[]) => Promise<void> | void
   disabled?: boolean
   multiple?: boolean
+  variant?: 'default' | 'minimal'
 }
 
-export function FileUploader({ onFilesLoaded, disabled, multiple = false }: FileUploaderProps) {
+export function FileUploader({ onFilesLoaded, disabled, multiple = false, variant = 'default' }: FileUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setDragging] = useState(false)
 
@@ -52,6 +53,52 @@ export function FileUploader({ onFilesLoaded, disabled, multiple = false }: File
       return
     }
     await handleFiles(event.dataTransfer.files)
+  }
+
+  if (variant === 'minimal') {
+    return (
+      <div className="rounded-lg border border-border/60 bg-muted/10 p-3">
+        <div
+          onDragOver={(event) => {
+            event.preventDefault()
+            if (!disabled) setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={cn(
+            'flex h-24 items-center justify-between gap-3 rounded-md border border-dashed px-3 transition-colors',
+            isDragging ? 'border-primary/50 bg-primary/5' : 'border-border/70 bg-background/40',
+            disabled && 'cursor-not-allowed opacity-50',
+          )}
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Drop .xcstrings here</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              or choose from disk
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => inputRef.current?.click()}
+            disabled={disabled}
+          >
+            Browse
+          </Button>
+        </div>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".xcstrings,application/json"
+          multiple={multiple}
+          className="hidden"
+          onChange={onInputChange}
+          disabled={disabled}
+        />
+      </div>
+    )
   }
 
   return (

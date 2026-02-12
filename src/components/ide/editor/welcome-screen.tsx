@@ -1,0 +1,91 @@
+import { useMemo } from 'react'
+import { FileUp, Globe } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { useCatalog } from '@/lib/catalog-context'
+import { useEditorStore } from '@/lib/editor-store'
+
+export function WelcomeScreen() {
+  const { catalog, storedCatalogs, loadCatalogById } = useCatalog()
+  const { setImportDialogOpen, setSidebarPanel } = useEditorStore()
+
+  const formattedStoredCatalogs = useMemo(
+    () =>
+      storedCatalogs.map((item) => ({
+        ...item,
+        formattedLastOpened: new Date(item.lastOpened).toLocaleString(),
+      })),
+    [storedCatalogs],
+  )
+
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="text-muted-foreground/50"
+        >
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M13.7149 14.5214C13.9649 14.5604 14.2389 14.5694 14.6269 14.5694C14.7739 14.5694 14.9729 14.5344 15.1809 14.4884L14.4559 13.0684L13.7149 14.5214Z"
+            fill="currentColor"
+          />
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M17.247 16.888C17.138 16.944 17.021 16.97 16.907 16.97C16.634 16.97 16.371 16.821 16.238 16.561L15.882 15.862C15.472 15.966 15.029 16.071 14.627 16.071C13.971 16.071 13.517 16.038 13.012 15.899L12.675 16.561C12.487 16.93 12.033 17.075 11.666 16.888C11.297 16.7 11.15 16.248 11.339 15.879L13.788 11.079C14.044 10.577 14.868 10.577 15.124 11.079L17.574 15.879C17.763 16.248 17.616 16.7 17.247 16.888ZM10.272 14.387C10.18 14.307 10.087 14.216 9.994 14.125C9.341 14.575 8.566 14.977 7.613 15.268C7.54 15.289 7.466 15.3 7.393 15.3C7.073 15.3 6.775 15.092 6.677 14.769C6.556 14.373 6.779 13.953 7.175 13.832C7.912 13.607 8.525 13.307 9.04 12.966C8.597 12.284 8.27 11.532 8.08 10.747C7.982 10.345 8.229 9.94 8.632 9.842C9.035 9.743 9.44 9.992 9.538 10.394C9.673 10.95 9.901 11.483 10.196 11.974C11.037 11.04 11.403 10.036 11.557 9.39H7.093C6.679 9.39 6.343 9.054 6.343 8.64C6.343 8.226 6.679 7.89 7.093 7.89H9.639V7.781C9.639 7.367 9.975 7.031 10.389 7.031C10.803 7.031 11.139 7.367 11.139 7.781V7.89H12.396C12.396 7.89 12.4 7.89 12.403 7.89H14.042C14.456 7.89 14.792 8.226 14.792 8.64C14.792 9.054 14.456 9.39 14.042 9.39H13.095C12.994 9.935 12.795 10.566 12.559 11.085C12.268 11.724 11.815 12.454 11.15 13.148C11.184 13.179 11.221 13.225 11.254 13.254C11.567 13.526 11.601 13.999 11.33 14.312C11.182 14.483 10.973 14.571 10.763 14.571C10.589 14.571 10.414 14.51 10.272 14.387ZM16.218 2.5H7.783C4.623 2.5 2.5 4.723 2.5 8.031V15.97C2.5 19.278 4.623 21.5 7.783 21.5H16.217C19.377 21.5 21.5 19.278 21.5 15.97V8.031C21.5 4.723 19.377 2.5 16.218 2.5Z"
+            fill="currentColor"
+          />
+        </svg>
+        <div>
+          <h2 className="text-lg font-semibold">xcstrings editor</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {catalog
+              ? 'Select a language from the sidebar to start editing.'
+              : 'Import an .xcstrings file to get started.'}
+          </p>
+        </div>
+
+        {!catalog && (
+          <Button onClick={() => setImportDialogOpen(true)} className="gap-1.5">
+            <FileUp className="size-4" />
+            Import file
+          </Button>
+        )}
+
+        {catalog && (
+          <Button
+            variant="outline"
+            onClick={() => setSidebarPanel('explorer')}
+            className="gap-1.5"
+          >
+            <Globe className="size-4" />
+            Browse languages
+          </Button>
+        )}
+
+        {!catalog && formattedStoredCatalogs.length > 0 && (
+          <div className="mt-2 w-full space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Recent catalogs</p>
+            {formattedStoredCatalogs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="flex w-full flex-col items-start rounded-md px-3 py-2 text-left text-xs hover:bg-accent"
+                onClick={() => loadCatalogById(item.id)}
+              >
+                <span className="font-medium">{item.fileName}</span>
+                <span className="text-muted-foreground">{item.formattedLastOpened}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

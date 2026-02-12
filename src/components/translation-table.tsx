@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table'
 import { Textarea } from './ui/textarea'
 import { cn } from '../lib/utils'
 import type { TranslationState, ExtractionState } from '../lib/xcstrings'
@@ -10,6 +10,8 @@ export interface TranslationRow {
   value: string
   sourceValue?: string
   comment?: string
+  /** Per-locale comment stored in localizations[locale].comment */
+  translationComment?: string
   /** Per-locale stringUnit.state */
   state?: TranslationState
   /** extractionState for the key */
@@ -22,7 +24,10 @@ interface TranslationTableProps {
   rows: TranslationRow[]
   locale: string
   sourceLocale: string
+  scrollToKey?: string | null
+  onScrollToKeyHandled?: () => void
   onValueChange: (key: string, value: string) => void
+  onTranslationCommentChange: (key: string, comment: string) => void
 }
 
 const DEBOUNCE_MS = 300
@@ -88,21 +93,32 @@ function MetadataBadges({ row }: { row: TranslationRow }) {
 interface DebouncedRowProps {
   row: TranslationRow
   onValueChange: (key: string, value: string) => void
+  onTranslationCommentChange: (key: string, comment: string) => void
 }
 
 const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   row,
   onValueChange,
+  onTranslationCommentChange,
 }: DebouncedRowProps) {
   const [localValue, setLocalValue] = useState(row.value)
+  const [localTranslationComment, setLocalTranslationComment] = useState(row.translationComment ?? '')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const commentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestValue = useRef(localValue)
+  const latestComment = useRef(localTranslationComment)
 
   // Sync from parent when the row changes (e.g. page navigation)
   useEffect(() => {
     setLocalValue(row.value)
     latestValue.current = row.value
   }, [row.value])
+
+  useEffect(() => {
+    const next = row.translationComment ?? ''
+    setLocalTranslationComment(next)
+    latestComment.current = next
+  }, [row.translationComment])
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -122,6 +138,24 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
     [onValueChange, row.key],
   )
 
+  const handleTranslationCommentChange = useCallback(
+    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const next = event.target.value
+      setLocalTranslationComment(next)
+      latestComment.current = next
+
+      if (commentTimerRef.current) {
+        clearTimeout(commentTimerRef.current)
+      }
+
+      commentTimerRef.current = setTimeout(() => {
+        onTranslationCommentChange(row.key, next)
+        commentTimerRef.current = null
+      }, DEBOUNCE_MS)
+    },
+    [onTranslationCommentChange, row.key],
+  )
+
   // Flush pending debounce on unmount
   useEffect(() => {
     return () => {
@@ -129,78 +163,192 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
         clearTimeout(timerRef.current)
         onValueChange(row.key, latestValue.current)
       }
+
+      if (commentTimerRef.current) {
+        clearTimeout(commentTimerRef.current)
+        onTranslationCommentChange(row.key, latestComment.current)
+      }
     }
-  }, [onValueChange, row.key])
+  }, [onTranslationCommentChange, onValueChange, row.key])
 
   return (
-    <TableRow className={cn(
-      'align-top last:border-0 hover:bg-muted/30',
-      row.shouldTranslate === false && 'opacity-50',
-    )}>
-      <TableCell className="space-y-2">
-        <div className="font-medium text-foreground">{row.key}</div>
-        <MetadataBadges row={row} />
-        {row.comment && (
-          <p className="rounded-md bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-            {row.comment}
-          </p>
-        )}
-      </TableCell>
-      <TableCell>
-        {row.sourceValue !== undefined ? (
-          row.sourceValue.length > 0 ? (
-            <p className="whitespace-pre-line rounded-md bg-muted/20 p-3 text-sm text-muted-foreground">
-              {row.sourceValue}
-            </p>
-          ) : (
-            <p className="text-xs text-muted-foreground/70">No source value</p>
-          )
-        ) : (
-          <p className="text-xs text-muted-foreground/70">No data</p>
-        )}
-      </TableCell>
-      <TableCell>
-        <Textarea
-          value={localValue}
-          onChange={handleChange}
-          placeholder={row.shouldTranslate === false ? 'Not translatable' : 'Type the translated copy here'}
-          disabled={row.shouldTranslate === false}
-          className={cn('min-h-[96px]', row.shouldTranslate === false && 'cursor-not-allowed opacity-60')}
-        />
-      </TableCell>
-    </TableRow>
+    <div
+      data-translation-key={row.key}
+      className={cn(
+        'rounded-md border border-border/60 bg-background',
+        row.shouldTranslate === false && 'opacity-50',
+      )}
+    >
+      {/* Key header (matches ChangesPanel entry header) */}
+      <div className="flex items-start gap-2 px-2 py-1.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="min-w-0 truncate text-xs font-medium">{row.key}</span>
+            <MetadataBadges row={row} />
+          </div>
+          {row.comment && (
+            <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
+              {row.comment}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Content (matches ChangesPanel previous/current blocks) */}
+      <div className="border-t border-border/60">
+        <div className="flex flex-col gap-2 px-2 py-1.5 text-[11px] sm:flex-row sm:items-start">
+          <div className="min-w-0 flex-1 rounded bg-muted/20 p-1.5 text-muted-foreground whitespace-pre-wrap">
+            {row.sourceValue !== undefined ? (
+              row.sourceValue.length > 0 ? (
+                row.sourceValue
+              ) : (
+                <span className="text-muted-foreground/70">(empty)</span>
+              )
+            ) : (
+              <span className="text-muted-foreground/70">(no data)</span>
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Translation
+              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                {row.key}
+              </span>
+            </div>
+            <Textarea
+              value={localValue}
+              onChange={handleChange}
+              placeholder={row.shouldTranslate === false ? 'Not translatable' : 'Type the translated copy here'}
+              disabled={row.shouldTranslate === false}
+              className={cn(
+                'min-h-[96px]',
+                row.shouldTranslate === false && 'cursor-not-allowed opacity-60',
+              )}
+            />
+
+            <div className="mt-3 mb-1 flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Comment
+              </span>
+              <span className="text-[10px] text-muted-foreground/70">
+                (for this locale only)
+              </span>
+            </div>
+            <Textarea
+              value={localTranslationComment}
+              onChange={handleTranslationCommentChange}
+              placeholder="Comment for this translation (optional)"
+              disabled={row.shouldTranslate === false}
+              className={cn(
+                'min-h-[44px] text-xs dark:bg-input/20 bg-muted/10',
+                row.shouldTranslate === false && 'cursor-not-allowed opacity-60',
+              )}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 })
 
-export function TranslationTable({ rows, locale, sourceLocale, onValueChange }: TranslationTableProps) {
+export function TranslationTable({
+  rows,
+  locale,
+  sourceLocale,
+  scrollToKey,
+  onScrollToKeyHandled,
+  onValueChange,
+  onTranslationCommentChange,
+}: TranslationTableProps) {
+  const parentRef = useRef<HTMLDivElement | null>(null)
+
+  const indexByKey = useMemo(() => {
+    const map = new Map<string, number>()
+    for (let i = 0; i < rows.length; i += 1) {
+      map.set(rows[i].key, i)
+    }
+    return map
+  }, [rows])
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 260,
+    overscan: 6,
+  })
+
+  useEffect(() => {
+    if (!scrollToKey) return
+
+    const targetIndex = indexByKey.get(scrollToKey)
+    if (targetIndex == null) {
+      onScrollToKeyHandled?.()
+      return
+    }
+
+    virtualizer.scrollToIndex(targetIndex, { align: 'center' })
+
+    // Ensure the target has a chance to mount and then clear request.
+    const frame = requestAnimationFrame(() => {
+      onScrollToKeyHandled?.()
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [indexByKey, onScrollToKeyHandled, scrollToKey, virtualizer])
+
+  const virtualItems = virtualizer.getVirtualItems()
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
-      <Table>
-        <TableHeader className="bg-muted/40">
-          <TableRow className="border-border/60">
-            <TableHead className="w-72 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-              Key
-            </TableHead>
-            <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-              {`Source value (${sourceLocale})`}
-            </TableHead>
-            <TableHead className="w-[42%] text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">
-              {locale}
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <DebouncedTranslationRow
-              key={row.key}
-              row={row}
-              onValueChange={onValueChange}
-            />
-          ))}
-        </TableBody>
-      </Table>
-      {rows.length === 0 && (
-        <div className="p-6 text-center text-sm text-muted-foreground">No entries on this page.</div>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Subtle column labels (kept, but in the ChangesPanel visual language) */}
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Source ({sourceLocale})
+        </span>
+        <span className="text-muted-foreground/40">→</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {locale}
+        </span>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="rounded-md border border-border/60 bg-background p-6 text-center text-sm text-muted-foreground">
+          No entries matching current filters.
+        </div>
+      ) : (
+        <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
+          <div
+            className="relative w-full"
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+            }}
+          >
+            {virtualItems.map((virtualItem) => {
+              const row = rows[virtualItem.index]
+
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute top-0 left-0 w-full px-1 pb-2"
+                  style={{
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <DebouncedTranslationRow
+                    row={row}
+                    onValueChange={onValueChange}
+                    onTranslationCommentChange={onTranslationCommentChange}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
     </div>
   )
