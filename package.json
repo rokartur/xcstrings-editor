@@ -10,7 +10,7 @@
     "start": "vite preview --host 0.0.0.0 --port 80"
   },
   "dependencies": {
-    "@base-ui/react": "^1.1.0",
+    "@base-ui/react": "^1.2.0",
     "@tanstack/react-virtual": "^3.13.18",
     "babel-plugin-react-compiler": "^1.0.0",
     "class-variance-authority": "^0.7.1",
