@@ -1,10 +1,11 @@
 import { X } from 'lucide-react'
 
-import { useEditorStore } from '@/lib/editor-store'
+import { DIFF_TAB_ID, useEditorStore } from '@/lib/editor-store'
 import { findLocaleOption, formatLocaleCode } from '@/lib/locale-options'
 import { cn } from '@/lib/utils'
 
 function getLocaleTabLabel(rawLocale: string): string {
+  if (rawLocale === DIFF_TAB_ID) return 'Diff'
   const formatted = formatLocaleCode(rawLocale)
   if (formatted.toLowerCase() === 'base') return 'Base'
   const language = findLocaleOption(formatted)?.language

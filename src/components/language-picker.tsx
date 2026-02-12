@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 
 import { Check, ChevronsUpDown, Sparkles } from 'lucide-react'
-import Fuse from 'fuse.js'
+import Fuse, { type IFuseOptions } from 'fuse.js'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command.tsx'
@@ -19,7 +19,7 @@ interface LanguagePickerProps {
   label?: string
 }
 
-const fuseOptions: Fuse.IFuseOptions<LanguageOption> = {
+const fuseOptions: IFuseOptions<LanguageOption> = {
   keys: [
     { name: 'code', weight: 0.5 },
     { name: 'label', weight: 0.3 },
@@ -111,8 +111,7 @@ export function LanguagePicker({
         if (disabled) return
         setOpen(nextOpen)
       }}>
-        <PopoverTrigger asChild>
-          <Button
+        <PopoverTrigger render={<Button
             id={inputId}
             type="button"
             variant="outline"
@@ -123,12 +122,11 @@ export function LanguagePicker({
               'h-8 w-full justify-between rounded-lg px-2.5 text-left text-sm',
               disabled && 'opacity-60',
             )}
-          >
-            <span className="truncate">
-              {activeOption ? `${activeOption.label} (${activeOption.code})` : placeholder}
-            </span>
-            <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden="true" />
-          </Button>
+          />}>
+          <span className="truncate">
+            {activeOption ? `${activeOption.label} (${activeOption.code})` : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" aria-hidden="true" />
         </PopoverTrigger>
         <PopoverContent className="w-[min(320px,90vw)] p-0" align="start">
           <Command shouldFilter={false} className="border-0 shadow-none">

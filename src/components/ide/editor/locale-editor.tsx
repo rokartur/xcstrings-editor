@@ -92,7 +92,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
 
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [extractionFilter, setExtractionFilter] = useState<ExtractionFilter>('all')
-  const [translatableFilter, setTranslatableFilter] = useState<TranslatableFilter>('all')
+  const [translatableFilter, setTranslatableFilter] = useState<TranslatableFilter>('yes')
   const [searchQuery, setSearchQuery] = useState('')
   const [pendingScrollKey, setPendingScrollKey] = useState<string | null>(null)
 
@@ -174,7 +174,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
     // Ensure the entry is visible: reset filters before jump scrolling.
     setStateFilter('all')
     setExtractionFilter('all')
-    setTranslatableFilter('all')
+    setTranslatableFilter('yes')
     setSearchQuery('')
     setPendingScrollKey(jumpToEntry.key)
     clearJumpToEntry()
@@ -185,8 +185,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
       const row: TranslationRow = {
         key: entry.key,
         value: entry.values[locale] ?? '',
-        translationComment:
-          catalog?.document.strings[entry.key]?.localizations?.[locale]?.comment ?? '',
+        comment: catalog?.document.strings[entry.key]?.comment ?? '',
         state: entry.states[locale],
         extractionState: entry.extractionState,
         shouldTranslate: entry.shouldTranslate,
@@ -194,10 +193,6 @@ export function LocaleEditor({ locale }: { locale: string }) {
 
       if (sourceLocale) {
         row.sourceValue = entry.values[sourceLocale] ?? ''
-      }
-
-      if (typeof entry.comment === 'string' && entry.comment.length > 0) {
-        row.comment = entry.comment
       }
 
       return row
@@ -278,7 +273,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
           scrollToKey={pendingScrollKey}
           onScrollToKeyHandled={handleVirtualScrollDone}
           onValueChange={(key, value) => updateTranslation(key, locale, value)}
-          onTranslationCommentChange={(key, comment) => updateTranslationComment(key, locale, comment)}
+          onCommentChange={(key, comment) => updateTranslationComment(key, comment)}
         />
       </div>
     </div>

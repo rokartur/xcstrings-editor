@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Download } from 'lucide-react'
 
-import { LanguagePicker } from '@/components/language-picker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -13,12 +12,14 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useCatalog } from '@/lib/catalog-context'
 import type { GithubCatalogSource } from '@/lib/catalog-context'
 import { useEditorStore } from '@/lib/editor-store'
 import { publishCatalogToGithub } from '@/lib/github-publish'
 import type { GithubPublishStatus, PublishCatalogResult } from '@/lib/github-publish'
+import { findLocaleOption } from '@/lib/locale-options'
 import { cn } from '@/lib/utils'
 import { resolveLocaleValue } from '@/lib/xcstrings'
 
@@ -35,15 +36,39 @@ const publishStatusLabels: Record<GithubPublishStatus, string> = {
   'creating-pull-request': 'Opening pull request',
 }
 
+const GITHUB_TOKEN_STORAGE_KEY = 'xcstrings-editor:github-pat'
+
+function safeGetStoredToken(): string {
+  try {
+    if (typeof window === 'undefined') return ''
+    return window.localStorage.getItem(GITHUB_TOKEN_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function safeStoreToken(token: string) {
+  try {
+    if (typeof window === 'undefined') return
+    if (token.trim().length === 0) {
+      window.localStorage.removeItem(GITHUB_TOKEN_STORAGE_KEY)
+    } else {
+      window.localStorage.setItem(GITHUB_TOKEN_STORAGE_KEY, token)
+    }
+  } catch {
+    // ignore storage failures
+  }
+}
+
 export function ExportDialog() {
   const { exportDialogOpen, setExportDialogOpen } = useEditorStore()
   const { catalog, exportContent, exportProjectFile } = useCatalog()
 
   const [githubToken, setGithubToken] = useState('')
+  const [rememberGithubToken, setRememberGithubToken] = useState(false)
   const [publishStep, setPublishStep] = useState<GithubPublishStatus | null>(null)
   const [publishResult, setPublishResult] = useState<PublishCatalogResult | null>(null)
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null)
-  const [selectedPublishLocale, setSelectedPublishLocale] = useState('')
   const [mode, setMode] = useState<'download' | 'github'>('download')
   const [isPublishing, setIsPublishing] = useState(false)
 
@@ -51,6 +76,8 @@ export function ExportDialog() {
     catalog?.source && catalog.source.type === 'github' ? catalog.source : null
   const hasDirtyChanges = catalog ? catalog.dirtyKeys.size > 0 : false
   const dirtyKeyCount = catalog?.dirtyKeys.size ?? 0
+  const tokenPresetDescription = `xcstrings-editor-${new Date().toISOString().slice(0, 10)}`
+  const tokenCreateUrl = `https://github.com/settings/tokens/new?description=${encodeURIComponent(tokenPresetDescription)}&scopes=public_repo`
 
   useEffect(() => {
     setPublishResult(null)
@@ -58,22 +85,19 @@ export function ExportDialog() {
     setPublishStep(null)
   }, [githubSource])
 
+  // Load saved token when the dialog is opened.
+  useEffect(() => {
+    if (!exportDialogOpen) return
+    const saved = safeGetStoredToken()
+    if (saved.trim().length > 0) {
+      setGithubToken(saved)
+      setRememberGithubToken(true)
+    }
+  }, [exportDialogOpen])
+
   useEffect(() => {
     if (!githubSource && mode === 'github') setMode('download')
   }, [githubSource, mode])
-
-  useEffect(() => {
-    if (!catalog) { setSelectedPublishLocale(''); return }
-    const { languages, document: doc } = catalog
-    if (languages.length === 0) { setSelectedPublishLocale(''); return }
-    let nextLocale = selectedPublishLocale
-    if (!nextLocale || !languages.includes(nextLocale)) {
-      nextLocale = (doc.sourceLanguage && languages.includes(doc.sourceLanguage))
-        ? doc.sourceLanguage
-        : languages[0] ?? ''
-    }
-    setSelectedPublishLocale(nextLocale)
-  }, [catalog, selectedPublishLocale])
 
   const handleDownloadCatalog = useCallback(() => {
     const exported = exportContent()
@@ -135,17 +159,22 @@ export function ExportDialog() {
     }
 
     const sortedLocales = Array.from(changedLocales).sort((a, b) => a.localeCompare(b))
-    const detectedDescriptor = sortedLocales.length > 0 ? sortedLocales.join(', ') : 'catalog'
-    const preferredLocale = selectedPublishLocale.trim()
-    const summary = preferredLocale || (sortedLocales.length === 1 ? sortedLocales[0] : detectedDescriptor) || 'catalog'
+    const sortedLocaleLabels = sortedLocales.map((locale) => findLocaleOption(locale)?.label ?? locale)
+    const summary = sortedLocales.length === 1
+      ? sortedLocales[0]!
+      : sortedLocales.length > 0
+        ? sortedLocales.join(', ')
+        : 'catalog'
 
     const fileLink = githubSource
       ? `https://github.com/${encodeGithubPath(githubSource.owner)}/${encodeGithubPath(githubSource.repo)}/blob/${encodeGithubPath(githubSource.branch)}/${encodeGithubPath(githubSource.path)}`
       : null
     const fileRef = fileLink ? `[${catalog.fileName}](${fileLink})` : catalog.fileName
 
-    let body = `This pull request was created via [xcstrings.vercel.app](https://xcstrings.vercel.app).\n\nUpdated file: ${fileRef}`
-    if (sortedLocales.length > 0) body += `\nUpdated locale${sortedLocales.length === 1 ? '' : 's'}: ${detectedDescriptor}`
+    let body = `This pull request was created via [xcstrings.ovh](https://xcstrings.ovh).\n\nUpdated file: ${fileRef}`
+    if (sortedLocales.length > 0) {
+      body += `\nUpdated language${sortedLocales.length === 1 ? '' : 's'}: ${sortedLocaleLabels.join(', ')}`
+    }
     if (sampleKeys.length > 0) {
       body += `\n\nModified keys:\n${sampleKeys.map((k) => `- ${k}`).join('\n')}`
       if (dirtyKeys.length > sampleKeys.length) body += `\n- ...and ${dirtyKeys.length - sampleKeys.length} more`
@@ -171,7 +200,7 @@ export function ExportDialog() {
     } finally {
       setIsPublishing(false)
     }
-  }, [catalog, exportContent, githubSource, githubToken, hasDirtyChanges, selectedPublishLocale])
+  }, [catalog, exportContent, githubSource, githubToken, hasDirtyChanges])
 
   if (!catalog) return null
 
@@ -253,24 +282,51 @@ export function ExportDialog() {
                     id="github-token-export"
                     type="password"
                     value={githubToken}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => { if (publishErrorMessage) setPublishErrorMessage(null); setGithubToken(e.target.value) }}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                      if (publishErrorMessage) setPublishErrorMessage(null)
+                      const next = e.target.value
+                      setGithubToken(next)
+                      if (rememberGithubToken) safeStoreToken(next)
+                    }}
                     placeholder="ghp_..."
                     autoComplete="off"
                     disabled={isPublishing}
                   />
+
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/10 px-3 py-2">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-medium text-foreground">Remember token on this device</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Stored in <code className="rounded bg-muted px-1 py-0.5">localStorage</code>. Anyone with access to this browser profile may be able to read it.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={rememberGithubToken}
+                      onCheckedChange={(checked) => {
+                        const nextChecked = Boolean(checked)
+                        setRememberGithubToken(nextChecked)
+                        if (nextChecked) {
+                          safeStoreToken(githubToken)
+                        } else {
+                          safeStoreToken('')
+                        }
+                      }}
+                      disabled={isPublishing}
+                    />
+                  </div>
+
                   <p className="text-xs text-muted-foreground">
-                    Requires <code className="rounded bg-muted px-1 py-0.5 text-[11px]">public_repo</code> scope.
+                    Requires <code className="rounded bg-muted px-1 py-0.5 text-[11px]">public_repo</code> scope.{' '}
+                    <a
+                      href={tokenCreateUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2 hover:text-foreground"
+                    >
+                      Create access token
+                    </a>
                   </p>
                 </div>
-
-                <LanguagePicker
-                  languages={catalog.languages}
-                  value={selectedPublishLocale}
-                  onSelect={(l) => setSelectedPublishLocale(l)}
-                  disabled={isPublishing}
-                  placeholder="Language for commit"
-                  label="Language for PR"
-                />
 
                 <div className="space-y-1 rounded-lg border border-border/60 bg-muted/10 p-3 text-xs text-muted-foreground">
                   <p>Target: <span className="font-medium text-foreground">{githubSource.owner}/{githubSource.repo}@{githubSource.branch}</span></p>
@@ -308,9 +364,18 @@ export function ExportDialog() {
 
                 <div className="flex gap-2">
                   <Button onClick={handlePublishToGithub} disabled={isPublishing || !hasDirtyChanges}>
-                    {isPublishing ? 'Publishing...' : 'Create fork & PR'}
+                    {isPublishing ? 'Publishing...' : 'Publish'}
                   </Button>
-                  <Button variant="outline" onClick={() => { setGithubToken(''); setPublishErrorMessage(null) }} disabled={isPublishing || !githubToken.trim()}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setGithubToken('')
+                      setRememberGithubToken(false)
+                      safeStoreToken('')
+                      setPublishErrorMessage(null)
+                    }}
+                    disabled={isPublishing || !githubToken.trim()}
+                  >
                     Clear token
                   </Button>
                 </div>

@@ -60,7 +60,7 @@ function Item({
 			},
 			props,
 		),
-		render,
+		...(render != null && { render }),
 		state: {
 			slot: 'item',
 			variant,

@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils'
 
 interface DiffChange {
   locale: string
-  kind: 'value' | 'comment'
+  kind: 'value'
   previous: string
   current: string
 }
@@ -19,6 +19,7 @@ interface DiffChange {
 interface DiffEntry {
   key: string
   comment?: string
+  commentChange?: { previous: string; current: string }
   changes: DiffChange[]
 }
 
@@ -44,6 +45,14 @@ function groupDifferences(catalog: ReturnType<typeof useCatalog>['catalog']): Di
 
     const changes: DiffChange[] = []
 
+    // Detect global comment change (key-level)
+    const previousGlobalComment = originalEntry?.comment ?? ''
+    const currentGlobalComment = currentEntry?.comment ?? ''
+    let commentChange: { previous: string; current: string } | undefined
+    if (previousGlobalComment !== currentGlobalComment) {
+      commentChange = { previous: previousGlobalComment, current: currentGlobalComment }
+    }
+
     for (const locale of languages) {
       const previousValue = originalEntry
         ? resolveLocaleValue(originalEntry, locale, catalog.originalDocument.sourceLanguage, key)
@@ -55,19 +64,13 @@ function groupDifferences(catalog: ReturnType<typeof useCatalog>['catalog']): Di
       if (previousValue !== currentValue) {
         changes.push({ locale, kind: 'value', previous: previousValue, current: currentValue })
       }
-
-      const previousComment = originalEntry?.localizations?.[locale]?.comment ?? ''
-      const currentComment = currentEntry?.localizations?.[locale]?.comment ?? ''
-
-      if (previousComment !== currentComment) {
-        changes.push({ locale, kind: 'comment', previous: previousComment, current: currentComment })
-      }
     }
 
-    if (changes.length > 0) {
+    if (changes.length > 0 || commentChange) {
       const diffEntry: DiffEntry = { key, changes }
       const comment = currentEntry?.comment ?? originalEntry?.comment
       if (typeof comment === 'string' && comment.length > 0) diffEntry.comment = comment
+      if (commentChange) diffEntry.commentChange = commentChange
       diffEntries.push(diffEntry)
     }
   }
@@ -85,7 +88,7 @@ export function ChangesPanel() {
   }
 
   if (diffEntries.length === 0) {
-    return <div className="p-4 text-xs text-muted-foreground">No changes detected.</div>
+    return <div className="p-4 text-xs text-muted-foreground">No diff detected.</div>
   }
 
   return (
@@ -120,7 +123,7 @@ export function ChangesPanel() {
                   <div className="flex items-center gap-2">
                     <span className="min-w-0 truncate text-xs font-medium">{entry.key}</span>
                     <Badge variant="secondary" className="h-4 px-1 text-[10px] tabular-nums">
-                      {entry.changes.length}
+                      {entry.changes.length + (entry.commentChange ? 1 : 0)}
                     </Badge>
                   </div>
                   {entry.comment && (
@@ -132,6 +135,42 @@ export function ChangesPanel() {
               </div>
 
               <div className="border-t border-border/60">
+                {entry.commentChange && (
+                  <div
+                    className="flex flex-col gap-1 px-2 py-1.5 text-[11px] sm:flex-row sm:items-start"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-max shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+                        Global
+                      </span>
+                      <span
+                        className="w-max shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                      >
+                        comment
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 flex-1 sm:flex sm:items-start sm:gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                          Before
+                        </div>
+                        <div className="min-w-0 flex-1 rounded bg-muted/20 p-1.5 text-muted-foreground whitespace-pre-wrap">
+                          {entry.commentChange.previous || <span className="text-muted-foreground/70">(empty)</span>}
+                        </div>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                          After
+                        </div>
+                        <div className="min-w-0 flex-1 rounded border border-primary/25 bg-background p-1.5 whitespace-pre-wrap">
+                          {entry.commentChange.current || <span className="text-muted-foreground/70">(empty)</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {entry.changes.map((change) => (
                   <div
                     key={`${entry.key}-${change.locale}-${change.kind}`}
@@ -142,12 +181,7 @@ export function ChangesPanel() {
                         {formatLocaleCode(change.locale)}
                       </span>
                       <span
-                        className={cn(
-                          'w-max shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide',
-                          change.kind === 'comment'
-                            ? 'bg-violet-500/10 text-violet-700 dark:text-violet-300'
-                            : 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
-                        )}
+                        className="w-max shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-sky-500/10 text-sky-700 dark:text-sky-300"
                       >
                         {change.kind}
                       </span>
@@ -157,7 +191,7 @@ export function ChangesPanel() {
                         onClick={() => {
                           const localeLabel = formatLocaleCode(change.locale)
                           const ok = window.confirm(
-                            `Restore ${entry.key} (${localeLabel}${change.kind === 'comment' ? ', comment' : ''})?`,
+                            `Restore ${entry.key} (${localeLabel})?`,
                           )
                           if (!ok) return
                           restoreField(entry.key, change.locale)

@@ -10,7 +10,7 @@ type ColonSpacing = 'space' | 'none'
 
 function detectIndent(text: string) {
   const match = /\n([ \t]+)\S/.exec(text)
-  if (!match) {
+  if (!match || !match[1]) {
     return { insertSpaces: true, tabSize: 2 }
   }
   const indent = match[1]
@@ -50,7 +50,7 @@ function detectColonSpacing(text: string): ColonSpacing | null {
 }
 
 function formatKeyColonSpacing(text: string, style: ColonSpacing): string {
-  return text.replace(/("(?:\\.|[^"\\])*")(\s*):/g, (match, key, whitespace: string) => {
+  return text.replace(/("(?:\\.|[^"\\])*")(\s*):/g, (_match, key, whitespace: string) => {
     if (whitespace.includes('\n') || whitespace.includes('\r')) {
       return `${key}${whitespace}:`
     }

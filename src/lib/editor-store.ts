@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type SidebarPanel = 'explorer' | 'search'
-export type BottomPanelTab = 'changes' | 'problems'
+export type SidebarPanel = 'explorer' | 'search' | 'problems'
+
+export const DIFF_TAB_ID = '__diff__'
 
 interface EditorState {
   sidebarVisible: boolean
@@ -10,8 +11,6 @@ interface EditorState {
   openTabs: string[]
   activeTab: string | null
   jumpToEntry: { locale: string; key: string } | null
-  bottomPanelVisible: boolean
-  bottomPanelTab: BottomPanelTab
   importDialogOpen: boolean
   exportDialogOpen: boolean
   addLanguageDialogOpen: boolean
@@ -21,10 +20,9 @@ interface EditorActions {
   toggleSidebar: () => void
   setSidebarPanel: (panel: SidebarPanel) => void
   openLocaleTab: (locale: string) => void
+  openDiffTab: () => void
   closeLocaleTab: (locale: string) => void
   setActiveTab: (locale: string | null) => void
-  toggleBottomPanel: () => void
-  setBottomPanelTab: (tab: BottomPanelTab) => void
   setImportDialogOpen: (open: boolean) => void
   setExportDialogOpen: (open: boolean) => void
   setAddLanguageDialogOpen: (open: boolean) => void
@@ -41,8 +39,6 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       openTabs: [],
       activeTab: null,
       jumpToEntry: null,
-      bottomPanelVisible: false,
-      bottomPanelTab: 'changes',
       importDialogOpen: false,
       exportDialogOpen: false,
       addLanguageDialogOpen: false,
@@ -69,6 +65,17 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           }
         }),
 
+      openDiffTab: () =>
+        set((state) => {
+          if (state.openTabs.includes(DIFF_TAB_ID)) {
+            return { activeTab: DIFF_TAB_ID }
+          }
+          return {
+            openTabs: [...state.openTabs, DIFF_TAB_ID],
+            activeTab: DIFF_TAB_ID,
+          }
+        }),
+
       closeLocaleTab: (locale) =>
         set((state) => {
           const nextTabs = state.openTabs.filter((t) => t !== locale)
@@ -81,17 +88,6 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         }),
 
       setActiveTab: (locale) => set({ activeTab: locale }),
-
-      toggleBottomPanel: () =>
-        set((state) => ({ bottomPanelVisible: !state.bottomPanelVisible })),
-
-      setBottomPanelTab: (tab) =>
-        set((state) => {
-          if (state.bottomPanelTab === tab && state.bottomPanelVisible) {
-            return { bottomPanelVisible: false }
-          }
-          return { bottomPanelTab: tab, bottomPanelVisible: true }
-        }),
 
       setImportDialogOpen: (open) => set({ importDialogOpen: open }),
       setExportDialogOpen: (open) => set({ exportDialogOpen: open }),
@@ -109,8 +105,6 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         sidebarPanel: state.sidebarPanel,
         openTabs: state.openTabs,
         activeTab: state.activeTab,
-        bottomPanelVisible: state.bottomPanelVisible,
-        bottomPanelTab: state.bottomPanelTab,
       }),
     },
   ),

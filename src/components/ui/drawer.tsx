@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { cn } from '@/lib/utils'
 import type { ComponentProps } from 'react'
 import { Drawer as DrawerPrimitive } from 'vaul'

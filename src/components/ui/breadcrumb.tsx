@@ -31,7 +31,7 @@ function BreadcrumbLink({ className, render, ...props }: useRender.ComponentProp
 			},
 			props,
 		),
-		render,
+		...(render != null && { render }),
 		state: {
 			slot: 'breadcrumb-link',
 		},

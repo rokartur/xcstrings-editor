@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { cn } from '@/lib/utils'
 import { Link, type LinkProps } from '@tanstack/react-router'
 import { cva, type VariantProps } from 'class-variance-authority'

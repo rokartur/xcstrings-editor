@@ -1,7 +1,8 @@
 import { useCatalog } from '@/lib/catalog-context'
-import { useEditorStore } from '@/lib/editor-store'
+import { DIFF_TAB_ID, useEditorStore } from '@/lib/editor-store'
 
 import { EditorTabBar } from './editor-tab-bar'
+import { DiffView } from './diff-view'
 import { LocaleEditor } from './locale-editor'
 import { WelcomeScreen } from './welcome-screen'
 
@@ -17,8 +18,12 @@ export function EditorArea() {
     <div className="flex h-full min-h-0 flex-col">
       <EditorTabBar />
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab && catalog.languages.includes(activeTab) && (
-          <LocaleEditor key={activeTab} locale={activeTab} />
+        {activeTab === DIFF_TAB_ID ? (
+          <DiffView />
+        ) : (
+          activeTab && catalog.languages.includes(activeTab) && (
+            <LocaleEditor key={activeTab} locale={activeTab} />
+          )
         )}
       </div>
     </div>

@@ -8,6 +8,7 @@ function Slider({
 	value,
 	min = 0,
 	max = 100,
+	ref,
 	...props
 }: Omit<SliderPrimitive.Root.Props, 'defaultValue' | 'value'> & {
 	defaultValue?: number | readonly number[]
@@ -27,6 +28,7 @@ function Slider({
 			min={min}
 			max={max}
 			thumbAlignment='edge'
+			{...(ref != null && { ref })}
 			{...props}
 		>
 			<SliderPrimitive.Control

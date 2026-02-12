@@ -4,22 +4,22 @@ const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com'
 export interface GithubRepoReference {
   owner: string
   repo: string
-  branch?: string
-  path?: string
+  branch?: string | undefined
+  path?: string | undefined
 }
 
 export interface GithubResolvedReference {
   owner: string
   repo: string
   branch: string
-  path?: string
+  path?: string | undefined
 }
 
 export interface GithubTreeFile {
   path: string
   relativePath: string
   sha: string
-  size?: number
+  size?: number | undefined
 }
 
 interface GithubTreeEntry {
@@ -110,16 +110,18 @@ export function parseGithubRepo(input: string): GithubRepoReference | null {
       return null
     }
 
-    const [owner, repo, ...rest] = segments
+    const owner = segments[0]!
+    const repo = segments[1]!
+    const rest = segments.slice(2)
 
     if (rest[0] === 'tree' && rest.length >= 2) {
-      const branch = rest[1]
+      const branch = rest[1]!
       const path = rest.length > 2 ? rest.slice(2).join('/') : undefined
       return buildReference(owner, repo, branch, path)
     }
 
     if (rest[0] === 'blob' && rest.length >= 2) {
-      const branch = rest[1]
+      const branch = rest[1]!
       const path = rest.length > 2 ? rest.slice(2).join('/') : undefined
       return buildReference(owner, repo, branch, path)
     }
@@ -137,8 +139,8 @@ export function parseGithubRepo(input: string): GithubRepoReference | null {
     return null
   }
 
-  const owner = segments[0]
-  let repoSegment = segments[1]
+  const owner = segments[0]!
+  let repoSegment = segments[1]!
   let branch: string | undefined
 
   for (const delimiter of ['@', '#']) {
@@ -154,10 +156,10 @@ export function parseGithubRepo(input: string): GithubRepoReference | null {
   let pathSegments = segments.slice(2)
 
   if (pathSegments[0] === 'tree' && pathSegments.length >= 2) {
-    branch = branch ?? decodeSegment(pathSegments[1])
+    branch = branch ?? decodeSegment(pathSegments[1]!)
     pathSegments = pathSegments.slice(2)
   } else if (pathSegments[0] === 'blob' && pathSegments.length >= 2) {
-    branch = branch ?? decodeSegment(pathSegments[1])
+    branch = branch ?? decodeSegment(pathSegments[1]!)
     pathSegments = pathSegments.slice(2)
   }
 

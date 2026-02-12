@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Download, FilePlus, Languages, RotateCcw } from 'lucide-react'
+import { Download, FileDiff, FilePlus, Languages, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogClose,
@@ -17,12 +18,12 @@ import { useEditorStore } from '@/lib/editor-store'
 
 export function Toolbar() {
   const { catalog, resetCatalog } = useCatalog()
-  const { setImportDialogOpen, setExportDialogOpen, setAddLanguageDialogOpen, closeAllTabs } =
+  const { setImportDialogOpen, setExportDialogOpen, setAddLanguageDialogOpen, closeAllTabs, openDiffTab } =
     useEditorStore()
-  const [confirmResetOpen, setConfirmResetOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
-  const handleConfirmReset = () => {
-    setConfirmResetOpen(false)
+  const handleConfirmDelete = () => {
+    setConfirmDeleteOpen(false)
     closeAllTabs()
     resetCatalog()
   }
@@ -79,6 +80,20 @@ export function Toolbar() {
               <Button
                 variant="ghost"
                 className="h-7 gap-1.5 px-2 text-xs"
+                onClick={openDiffTab}
+              >
+                <FileDiff className="size-4" />
+                Diff
+                {catalog.dirtyKeys.size > 0 && (
+                  <Badge variant="secondary" className="h-4 px-1 text-[10px] tabular-nums">
+                    {catalog.dirtyKeys.size}
+                  </Badge>
+                )}
+              </Button>
+
+              <Button
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-xs"
                 onClick={() => setAddLanguageDialogOpen(true)}
               >
                 <Languages className="size-4" />
@@ -97,33 +112,31 @@ export function Toolbar() {
               <Button
                 variant="ghost"
                 className="h-7 gap-1.5 px-2 text-xs"
-                onClick={() => setConfirmResetOpen(true)}
+                onClick={() => setConfirmDeleteOpen(true)}
               >
-                <RotateCcw className="size-4" />
-                Reset
+                <Trash2 className="size-4" />
+                Delete file locally
               </Button>
             </>
           )}
         </div>
       </div>
 
-      <Dialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Clear current catalog?</DialogTitle>
+            <DialogTitle>Delete file locally?</DialogTitle>
             <DialogDescription>
-              This action removes the loaded translations and any pending changes from the editor.
-              You can re-import the file again later if needed.
+              This removes the currently loaded catalog and any pending changes from this device.
+              You can import the file again later.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Keep editing
-              </Button>
+            <DialogClose render={<Button type="button" variant="outline" />}>
+              Keep editing
             </DialogClose>
-            <Button type="button" variant="destructive" onClick={handleConfirmReset} autoFocus>
-              Clear catalog
+            <Button type="button" variant="destructive" onClick={handleConfirmDelete} autoFocus>
+              Delete file locally
             </Button>
           </DialogFooter>
         </DialogContent>

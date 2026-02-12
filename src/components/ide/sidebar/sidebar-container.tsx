@@ -1,6 +1,7 @@
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEditorStore } from '@/lib/editor-store'
 
+import { ProblemsPanel } from '../bottom-panel/problems-panel'
 import { ExplorerPanel } from './explorer-panel'
 import { SearchPanel } from './search-panel'
 
@@ -13,12 +14,19 @@ export function SidebarContainer() {
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {sidebarPanel === 'explorer' && 'Explorer'}
           {sidebarPanel === 'search' && 'Search'}
+          {sidebarPanel === 'problems' && 'Problems'}
         </span>
       </div>
-      <ScrollArea className="flex-1">
-        {sidebarPanel === 'explorer' && <ExplorerPanel />}
-        {sidebarPanel === 'search' && <SearchPanel />}
-      </ScrollArea>
+      {sidebarPanel === 'problems' ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <ProblemsPanel />
+        </div>
+      ) : (
+        <ScrollArea className="flex-1">
+          {sidebarPanel === 'explorer' && <ExplorerPanel />}
+          {sidebarPanel === 'search' && <SearchPanel />}
+        </ScrollArea>
+      )}
     </div>
   )
 }

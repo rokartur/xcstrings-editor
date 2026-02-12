@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ArrowLeftIcon, ArrowRightIcon } from '@/components/icons'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'

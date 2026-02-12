@@ -50,7 +50,7 @@ function ButtonGroupText({ className, render, ...props }: useRender.ComponentPro
 			},
 			props,
 		),
-		render,
+		...(render != null && { render }),
 		state: {
 			slot: 'button-group-text',
 		},

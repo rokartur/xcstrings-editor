@@ -15,7 +15,7 @@ interface Problem {
 
 export function ProblemsPanel() {
   const { catalog } = useCatalog()
-  const { openLocaleTab, setActiveTab } = useEditorStore()
+  const { openLocaleTab, setActiveTab, requestJumpToEntry } = useEditorStore()
 
   const [openGroups, setOpenGroups] = useState(() => new Set<string>(['Untranslated', 'Needs review', 'Stale']))
 
@@ -129,6 +129,7 @@ export function ProblemsPanel() {
                               onClick={() => {
                                 openLocaleTab(problem.locale)
                                 setActiveTab(problem.locale)
+                                requestJumpToEntry(problem.locale, problem.key)
                               }}
                             >
                               <span className="truncate font-medium">{problem.key}</span>

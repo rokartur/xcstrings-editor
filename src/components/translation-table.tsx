@@ -9,9 +9,8 @@ export interface TranslationRow {
   key: string
   value: string
   sourceValue?: string
+  /** Global comment for this key (editable) */
   comment?: string
-  /** Per-locale comment stored in localizations[locale].comment */
-  translationComment?: string
   /** Per-locale stringUnit.state */
   state?: TranslationState
   /** extractionState for the key */
@@ -27,10 +26,84 @@ interface TranslationTableProps {
   scrollToKey?: string | null
   onScrollToKeyHandled?: () => void
   onValueChange: (key: string, value: string) => void
-  onTranslationCommentChange: (key: string, comment: string) => void
+  onCommentChange: (key: string, comment: string) => void
 }
 
 const DEBOUNCE_MS = 300
+
+type SortColumn = 'key' | 'source' | 'target' | 'comment'
+type SortDirection = 'asc' | 'desc'
+type SortState = { column: SortColumn; direction: SortDirection } | null
+
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+}
+
+function SortableHeader({
+  label,
+  column,
+  sort,
+  onToggle,
+}: {
+  label: string
+  column: SortColumn
+  sort: SortState
+  onToggle: (column: SortColumn) => void
+}) {
+  const sorted: SortDirection | false = sort?.column === column ? sort.direction : false
+
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(column)}
+      data-sortable
+      data-sorted={sorted || undefined}
+      className={cn(
+        'group/sort -mx-1.5 inline-flex items-center justify-start gap-1 rounded-sm px-1.5 py-1',
+        'text-left text-muted-foreground transition-colors',
+        'hover:bg-muted hover:text-foreground',
+        'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+      )}
+      aria-label={
+        sorted
+          ? `${label}: sorted ${sorted === 'asc' ? 'ascending' : 'descending'} (click to change)`
+          : `${label}: not sorted (click to sort)`
+      }
+      title={sorted ? `Sorted ${sorted}` : 'Click to sort'}
+    >
+      <span className="truncate">{label}</span>
+      {/* Always-visible sort indicator (discoverability) */}
+      <svg
+        className={cn(
+          'size-3 shrink-0',
+          'transition-opacity',
+          // Subtle by default, clearer on hover/focus.
+          sorted ? 'opacity-100' : 'opacity-40 group-hover/sort:opacity-80 group-focus-visible/sort:opacity-80',
+        )}
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        {/* Up triangle */}
+        <path
+          d="M8 3l3.5 4.5H4.5L8 3z"
+          className={cn(
+            'transition-opacity',
+            !sorted ? 'opacity-70' : sorted === 'asc' ? 'opacity-100' : 'opacity-25',
+          )}
+        />
+        {/* Down triangle */}
+        <path
+          d="M8 13L4.5 8.5h7L8 13z"
+          className={cn(
+            'transition-opacity',
+            !sorted ? 'opacity-70' : sorted === 'desc' ? 'opacity-100' : 'opacity-25',
+          )}
+        />
+      </svg>
+    </button>
+  )
+}
 
 /* ── Metadata badges ── */
 
@@ -93,20 +166,20 @@ function MetadataBadges({ row }: { row: TranslationRow }) {
 interface DebouncedRowProps {
   row: TranslationRow
   onValueChange: (key: string, value: string) => void
-  onTranslationCommentChange: (key: string, comment: string) => void
+  onCommentChange: (key: string, comment: string) => void
 }
 
 const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   row,
   onValueChange,
-  onTranslationCommentChange,
+  onCommentChange,
 }: DebouncedRowProps) {
   const [localValue, setLocalValue] = useState(row.value)
-  const [localTranslationComment, setLocalTranslationComment] = useState(row.translationComment ?? '')
+  const [localComment, setLocalComment] = useState(row.comment ?? '')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const commentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const latestValue = useRef(localValue)
-  const latestComment = useRef(localTranslationComment)
+  const latestComment = useRef(localComment)
 
   // Sync from parent when the row changes (e.g. page navigation)
   useEffect(() => {
@@ -115,10 +188,10 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   }, [row.value])
 
   useEffect(() => {
-    const next = row.translationComment ?? ''
-    setLocalTranslationComment(next)
+    const next = row.comment ?? ''
+    setLocalComment(next)
     latestComment.current = next
-  }, [row.translationComment])
+  }, [row.comment])
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -138,10 +211,10 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
     [onValueChange, row.key],
   )
 
-  const handleTranslationCommentChange = useCallback(
+  const handleCommentChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       const next = event.target.value
-      setLocalTranslationComment(next)
+      setLocalComment(next)
       latestComment.current = next
 
       if (commentTimerRef.current) {
@@ -149,11 +222,11 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
       }
 
       commentTimerRef.current = setTimeout(() => {
-        onTranslationCommentChange(row.key, next)
+        onCommentChange(row.key, next)
         commentTimerRef.current = null
       }, DEBOUNCE_MS)
     },
-    [onTranslationCommentChange, row.key],
+    [onCommentChange, row.key],
   )
 
   // Flush pending debounce on unmount
@@ -166,87 +239,75 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
 
       if (commentTimerRef.current) {
         clearTimeout(commentTimerRef.current)
-        onTranslationCommentChange(row.key, latestComment.current)
+        onCommentChange(row.key, latestComment.current)
       }
     }
-  }, [onTranslationCommentChange, onValueChange, row.key])
+  }, [onCommentChange, onValueChange, row.key])
 
   return (
     <div
       data-translation-key={row.key}
       className={cn(
-        'rounded-md border border-border/60 bg-background',
-        row.shouldTranslate === false && 'opacity-50',
+        'group rounded-md border border-border/60 bg-background',
+        'transition-colors hover:bg-muted/10',
+        row.shouldTranslate === false && 'opacity-60',
       )}
     >
-      {/* Key header (matches ChangesPanel entry header) */}
-      <div className="flex items-start gap-2 px-2 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 truncate text-xs font-medium">{row.key}</span>
-            <MetadataBadges row={row} />
-          </div>
-          {row.comment && (
-            <div className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">
-              {row.comment}
-            </div>
+      <div
+        className={cn(
+          'grid gap-2 p-2',
+          // Always 4 columns; horizontal scroll is handled by the parent container.
+          'min-w-230 grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]',
+        )}
+      >
+        {/* Key */}
+        <div className="min-w-0">
+          <span className="block text-xs font-medium leading-snug whitespace-normal wrap-break-word">
+            {row.key}
+          </span>
+        </div>
+
+        {/* Source */}
+        <div className="min-w-0 rounded bg-muted/20 p-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap">
+          {row.sourceValue !== undefined ? (
+            row.sourceValue.length > 0 ? (
+              row.sourceValue
+            ) : (
+              <span className="text-muted-foreground/70">(empty)</span>
+            )
+          ) : (
+            <span className="text-muted-foreground/70">(no data)</span>
           )}
         </div>
-      </div>
 
-      {/* Content (matches ChangesPanel previous/current blocks) */}
-      <div className="border-t border-border/60">
-        <div className="flex flex-col gap-2 px-2 py-1.5 text-[11px] sm:flex-row sm:items-start">
-          <div className="min-w-0 flex-1 rounded bg-muted/20 p-1.5 text-muted-foreground whitespace-pre-wrap">
-            {row.sourceValue !== undefined ? (
-              row.sourceValue.length > 0 ? (
-                row.sourceValue
-              ) : (
-                <span className="text-muted-foreground/70">(empty)</span>
-              )
-            ) : (
-              <span className="text-muted-foreground/70">(no data)</span>
+        {/* Target */}
+        <div className="min-w-0">
+          <Textarea
+            value={localValue}
+            onChange={handleChange}
+            placeholder={row.shouldTranslate === false ? 'Not translatable' : 'Type the translated copy here'}
+            disabled={row.shouldTranslate === false}
+            className={cn(
+              'field-sizing-content',
+              row.shouldTranslate === false && 'cursor-not-allowed opacity-60',
             )}
-          </div>
+          />
+        </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-                Translation
-              </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                {row.key}
-              </span>
-            </div>
-            <Textarea
-              value={localValue}
-              onChange={handleChange}
-              placeholder={row.shouldTranslate === false ? 'Not translatable' : 'Type the translated copy here'}
-              disabled={row.shouldTranslate === false}
-              className={cn(
-                'min-h-[96px]',
-                row.shouldTranslate === false && 'cursor-not-allowed opacity-60',
-              )}
-            />
+        {/* Comment */}
+        <div className="min-w-0">
+          <Textarea
+            value={localComment}
+            onChange={handleCommentChange}
+            placeholder="Comment for this key (optional)"
+            className={cn('field-sizing-content')}
+          />
+        </div>
 
-            <div className="mt-3 mb-1 flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-                Comment
-              </span>
-              <span className="text-[10px] text-muted-foreground/70">
-                (for this locale only)
-              </span>
-            </div>
-            <Textarea
-              value={localTranslationComment}
-              onChange={handleTranslationCommentChange}
-              placeholder="Comment for this translation (optional)"
-              disabled={row.shouldTranslate === false}
-              className={cn(
-                'min-h-[44px] text-xs dark:bg-input/20 bg-muted/10',
-                row.shouldTranslate === false && 'cursor-not-allowed opacity-60',
-              )}
-            />
+        {/* Badges */}
+        <div className="min-w-0">
+          <div className="min-h-4.5">
+            <MetadataBadges row={row} />
           </div>
         </div>
       </div>
@@ -261,22 +322,72 @@ export function TranslationTable({
   scrollToKey,
   onScrollToKeyHandled,
   onValueChange,
-  onTranslationCommentChange,
+  onCommentChange,
 }: TranslationTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null)
 
+  const [sort, setSort] = useState<SortState>(null)
+
+  const displayRows = useMemo(() => {
+    if (!sort) return rows
+
+    const decorated = rows.map((row, index) => ({ row, index }))
+
+    const dir = sort.direction === 'asc' ? 1 : -1
+
+    decorated.sort((a, b) => {
+      const ra = a.row
+      const rb = b.row
+
+      let res = 0
+      switch (sort.column) {
+        case 'key':
+          res = compareText(ra.key, rb.key)
+          break
+        case 'source':
+          res = compareText(ra.sourceValue ?? '', rb.sourceValue ?? '')
+          break
+        case 'target':
+          res = compareText(ra.value ?? '', rb.value ?? '')
+          break
+        case 'comment':
+          res = compareText(ra.comment ?? '', rb.comment ?? '')
+          break
+        default:
+          res = 0
+      }
+
+      if (res !== 0) return res * dir
+      // Ensure stable sorting for equal values.
+      return a.index - b.index
+    })
+
+    return decorated.map((d) => d.row)
+  }, [rows, sort])
+
+  const toggleSort = useCallback((column: SortColumn) => {
+    setSort((prev) => {
+      if (!prev || prev.column !== column) return { column, direction: 'asc' }
+      if (prev.direction === 'asc') return { column, direction: 'desc' }
+      return null
+    })
+  }, [])
+
   const indexByKey = useMemo(() => {
     const map = new Map<string, number>()
-    for (let i = 0; i < rows.length; i += 1) {
-      map.set(rows[i].key, i)
+    for (let i = 0; i < displayRows.length; i += 1) {
+      const row = displayRows[i]
+      if (row) {
+        map.set(row.key, i)
+      }
     }
     return map
-  }, [rows])
+  }, [displayRows])
 
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: displayRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 260,
+    estimateSize: () => 140,
     overscan: 6,
   })
 
@@ -303,18 +414,18 @@ export function TranslationTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Subtle column labels (kept, but in the ChangesPanel visual language) */}
-      <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Source ({sourceLocale})
-        </span>
-        <span className="text-muted-foreground/40">→</span>
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {locale}
-        </span>
+      {/* Column headers */}
+      <div className="mb-2 overflow-x-auto rounded-md border border-border/60 bg-muted/10 px-2 py-1.5">
+        <div className="grid min-w-230 gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]">
+          <SortableHeader label="Key" column="key" sort={sort} onToggle={toggleSort} />
+          <SortableHeader label={`Source (${sourceLocale})`} column="source" sort={sort} onToggle={toggleSort} />
+          <SortableHeader label={locale} column="target" sort={sort} onToggle={toggleSort} />
+          <SortableHeader label="Comment" column="comment" sort={sort} onToggle={toggleSort} />
+          <span></span>
+        </div>
       </div>
 
-      {rows.length === 0 ? (
+      {displayRows.length === 0 ? (
         <div className="rounded-md border border-border/60 bg-background p-6 text-center text-sm text-muted-foreground">
           No entries matching current filters.
         </div>
@@ -327,7 +438,8 @@ export function TranslationTable({
             }}
           >
             {virtualItems.map((virtualItem) => {
-              const row = rows[virtualItem.index]
+              const row = displayRows[virtualItem.index]
+              if (!row) return null
 
               return (
                 <div
@@ -342,7 +454,7 @@ export function TranslationTable({
                   <DebouncedTranslationRow
                     row={row}
                     onValueChange={onValueChange}
-                    onTranslationCommentChange={onTranslationCommentChange}
+                    onCommentChange={onCommentChange}
                   />
                 </div>
               )

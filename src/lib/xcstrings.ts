@@ -17,6 +17,7 @@ export interface XcStringEntry {
   comment?: string
   extractionState?: string
   shouldTranslate?: boolean
+  stringUnit?: StringUnit
   localizations?: Record<string, LocalizationRecord>
 }
 
@@ -42,7 +43,7 @@ export type ExtractionState = 'manual' | 'extracted_with_value' | 'migrated' | '
 
 export interface CatalogEntry {
   key: string
-  comment?: string
+  comment?: string | undefined
   values: Record<string, string>
   /** Per-locale stringUnit state */
   states: Record<string, TranslationState>

@@ -97,21 +97,14 @@ export function GithubStarsButton({ className }: { className?: string }) {
 
   return (
     <Button
-      asChild
+      render={<a href={`https://github.com/${GITHUB_REPO}`} target="_blank" rel="noreferrer noopener" />}
       variant="outline"
       className={cn('gap-2 px-3 font-medium', className)}
       aria-label={`${formattedStars} GitHub stars`}
     >
-      <a
-        href={`https://github.com/${GITHUB_REPO}`}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="flex items-center gap-2"
-      >
-        <Star className="size-4 text-yellow-500" strokeWidth={1.8} aria-hidden="true" />
-        <span className="tabular-nums">{formattedStars}</span>
-        <span className="text-muted-foreground">stars</span>
-      </a>
+      <Star className="size-4 text-yellow-500" strokeWidth={1.8} aria-hidden="true" />
+      <span className="tabular-nums">{formattedStars}</span>
+      <span className="text-muted-foreground">stars</span>
     </Button>
   )
 }

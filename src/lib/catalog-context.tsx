@@ -69,7 +69,7 @@ interface CatalogContextValue {
   loadCatalogById: (catalogId: string) => void
   removeCatalog: (catalogId: string) => void
   updateTranslation: (key: string, locale: string, value: string) => void
-  updateTranslationComment: (key: string, locale: string, comment: string) => void
+  updateTranslationComment: (key: string, comment: string) => void
   addLanguage: (locale: string) => void
   removeLanguage: (locale: string) => void
   restoreKey: (key: string) => void
@@ -415,6 +415,21 @@ function resolveLocaleState(entry: XcStringEntry, locale: string): TranslationSt
   return undefined
 }
 
+function normalizeEntryKeyOrder(entry: XcStringEntry): XcStringEntry {
+  // Xcode typically keeps `comment` before `localizations`.
+  // JSON object key order is stable in JS and affects diff friendliness.
+  const next: XcStringEntry = {}
+
+  if (entry.comment !== undefined) next.comment = entry.comment
+  if (entry.localizations !== undefined) next.localizations = entry.localizations
+  if (entry.stringUnit !== undefined) next.stringUnit = entry.stringUnit
+  if (entry.extractionState !== undefined) next.extractionState = entry.extractionState
+  // Only persist shouldTranslate when explicitly false (default is true)
+  if (entry.shouldTranslate === false) next.shouldTranslate = false
+
+  return next
+}
+
 function normalizeExtractionState(value: unknown): ExtractionState {
   if (value === 'manual' || value === 'extracted_with_value' || value === 'migrated' || value === 'stale') {
     return value
@@ -699,13 +714,16 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   )
 
   const updateEntries = useCallback(
-    (entries: CatalogEntry[], key: string, locale: string, value: string) =>
+    (entries: CatalogEntry[], key: string, locale: string, value: string, nextState?: TranslationState) =>
       entries.map((entry) => {
         if (entry.key !== key) {
           return entry
         }
 
-        if (entry.values[locale] === value) {
+        const currentValue = entry.values[locale]
+        const currentState = entry.states[locale]
+
+        if (currentValue === value && (nextState === undefined || currentState === nextState)) {
           return entry
         }
 
@@ -715,6 +733,13 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
             ...entry.values,
             [locale]: value,
           },
+          states:
+            nextState === undefined
+              ? entry.states
+              : {
+                  ...entry.states,
+                  [locale]: nextState,
+                },
         }
       }),
     [],
@@ -745,10 +770,47 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           return current
         }
 
+        const previousResolvedValue = resolveLocaleValue(
+          entry,
+          locale,
+          current.document.sourceLanguage,
+          key,
+        )
+
         // Only clone the single entry being edited, not the entire document
         const clonedEntry = structuredClone(entry)
+
+        // Persist values uniformly under localizations — including the source language.
+        // (Some catalogs keep source language inside localizations; user requested keeping it.)
         setValueForLocale(clonedEntry, locale, value)
-        current.document.strings[key] = clonedEntry
+
+        // If this key is translatable and the translation was previously empty,
+        // automatically mark it as translated when user fills it in.
+        const shouldTranslate = clonedEntry.shouldTranslate !== false
+        const nextTrimmed = value.trim()
+        const prevTrimmed = (previousResolvedValue ?? '').trim()
+        let nextLocaleState: TranslationState | undefined
+
+        if (
+          shouldTranslate &&
+          prevTrimmed.length === 0 &&
+          nextTrimmed.length > 0 &&
+          locale !== current.document.sourceLanguage
+        ) {
+          if (!clonedEntry.localizations) clonedEntry.localizations = {}
+          if (!clonedEntry.localizations[locale]) clonedEntry.localizations[locale] = {}
+          if (!clonedEntry.localizations[locale].stringUnit) clonedEntry.localizations[locale].stringUnit = {}
+          clonedEntry.localizations[locale].stringUnit!.state = 'translated'
+          nextLocaleState = 'translated'
+        } else {
+          // Keep whatever is in the file (or undefined).
+          nextLocaleState = resolveLocaleState(clonedEntry, locale)
+        }
+
+        // Ensure stable key order in serialized JSON (diff-friendly, matches Xcode style).
+        const normalizedEntry = normalizeEntryKeyOrder(clonedEntry)
+
+        current.document.strings[key] = normalizedEntry
 
         const nextDirty = new Set(current.dirtyKeys)
         if (isEntryDirty(key, current.document, current.originalDocument)) {
@@ -812,7 +874,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
         return {
           ...current,
-          entries: updateEntries(current.entries, key, locale, value),
+          entries: updateEntries(current.entries, key, locale, value, nextLocaleState),
           dirtyKeys: nextDirty,
           documentDirty: true,
         }
@@ -822,7 +884,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   )
 
   const updateTranslationComment = useCallback(
-    (key: string, locale: string, comment: string) => {
+    (key: string, comment: string) => {
       setCatalog((current) => {
         if (!current) return current
 
@@ -830,33 +892,16 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         if (!entry) return current
 
         const clonedEntry = structuredClone(entry)
-        if (!clonedEntry.localizations) {
-          clonedEntry.localizations = {}
-        }
-        if (!clonedEntry.localizations[locale]) {
-          clonedEntry.localizations[locale] = {}
-        }
 
-        const trimmed = comment.trimEnd()
-        if (trimmed.length === 0) {
-          // Remove empty comments to keep output clean.
-          if (clonedEntry.localizations[locale].comment !== undefined) {
-            delete clonedEntry.localizations[locale].comment
-          }
+        // Store comment at the key level (global), not per-locale.
+        if (comment.length === 0) {
+          delete clonedEntry.comment
         } else {
-          clonedEntry.localizations[locale].comment = trimmed
+          clonedEntry.comment = comment
         }
 
-        // Clean up empty localization record (if it has no comment/stringUnit/variations)
-        const loc = clonedEntry.localizations[locale]
-        if (loc && !loc.comment && !loc.stringUnit && !loc.variations) {
-          delete clonedEntry.localizations[locale]
-        }
-        if (clonedEntry.localizations && Object.keys(clonedEntry.localizations).length === 0) {
-          delete clonedEntry.localizations
-        }
-
-        current.document.strings[key] = clonedEntry
+        const normalizedEntry = normalizeEntryKeyOrder(clonedEntry)
+        current.document.strings[key] = normalizedEntry
 
         const nextDirty = new Set(current.dirtyKeys)
         if (isEntryDirty(key, current.document, current.originalDocument)) {
@@ -915,10 +960,17 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           })
         }, 500)
 
+        // Update entries to reflect the new comment value.
+        const nextEntries = current.entries.map((e) => {
+          if (e.key !== key) return e
+          const nextComment = comment.length > 0 ? comment : undefined
+          if (e.comment === nextComment) return e
+          return { ...e, comment: nextComment }
+        })
+
         return {
           ...current,
-          // Force derived editor rows to refresh even though values didn't change.
-          entries: [...current.entries],
+          entries: nextEntries,
           dirtyKeys: nextDirty,
           documentDirty: true,
         }
