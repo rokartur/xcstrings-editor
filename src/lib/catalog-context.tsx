@@ -70,6 +70,8 @@ interface CatalogContextValue {
   removeCatalog: (catalogId: string) => void
   updateTranslation: (key: string, locale: string, value: string) => void
   updateTranslationComment: (key: string, comment: string) => void
+  updateTranslationState: (key: string, locale: string, state: TranslationState) => void
+  updateShouldTranslate: (key: string, shouldTranslate: boolean) => void
   addLanguage: (locale: string) => void
   removeLanguage: (locale: string) => void
   restoreKey: (key: string) => void
@@ -793,15 +795,31 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
         if (
           shouldTranslate &&
-          prevTrimmed.length === 0 &&
           nextTrimmed.length > 0 &&
           locale !== current.document.sourceLanguage
         ) {
-          if (!clonedEntry.localizations) clonedEntry.localizations = {}
-          if (!clonedEntry.localizations[locale]) clonedEntry.localizations[locale] = {}
-          if (!clonedEntry.localizations[locale].stringUnit) clonedEntry.localizations[locale].stringUnit = {}
-          clonedEntry.localizations[locale].stringUnit!.state = 'translated'
-          nextLocaleState = 'translated'
+          // Value is non-empty → mark as translated (whether it was empty before or already had content)
+          const currentState = resolveLocaleState(clonedEntry, locale)
+          if (!currentState || currentState === 'new' || (prevTrimmed.length === 0 && nextTrimmed.length > 0)) {
+            if (!clonedEntry.localizations) clonedEntry.localizations = {}
+            if (!clonedEntry.localizations[locale]) clonedEntry.localizations[locale] = {}
+            if (!clonedEntry.localizations[locale].stringUnit) clonedEntry.localizations[locale].stringUnit = {}
+            clonedEntry.localizations[locale].stringUnit!.state = 'translated'
+            nextLocaleState = 'translated'
+          } else {
+            nextLocaleState = currentState
+          }
+        } else if (
+          shouldTranslate &&
+          nextTrimmed.length === 0 &&
+          prevTrimmed.length > 0 &&
+          locale !== current.document.sourceLanguage
+        ) {
+          // Value cleared → reset state to undefined (untranslated)
+          if (clonedEntry.localizations?.[locale]?.stringUnit?.state) {
+            delete clonedEntry.localizations[locale].stringUnit!.state
+          }
+          nextLocaleState = undefined
         } else {
           // Keep whatever is in the file (or undefined).
           nextLocaleState = resolveLocaleState(clonedEntry, locale)
@@ -1389,6 +1407,108 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     [updateStoredState],
   )
 
+  const updateTranslationState = useCallback(
+    (key: string, locale: string, state: TranslationState) => {
+      setCatalog((current) => {
+        if (!current) return current
+
+        const entry = current.document.strings[key]
+        if (!entry) return current
+
+        const clonedEntry = structuredClone(entry)
+
+        if (!clonedEntry.localizations) clonedEntry.localizations = {}
+        if (!clonedEntry.localizations[locale]) clonedEntry.localizations[locale] = {}
+        if (!clonedEntry.localizations[locale].stringUnit) clonedEntry.localizations[locale].stringUnit = {}
+        if (state) {
+          clonedEntry.localizations[locale].stringUnit!.state = state
+        } else {
+          delete clonedEntry.localizations[locale].stringUnit!.state
+        }
+
+        const normalizedEntry = normalizeEntryKeyOrder(clonedEntry)
+        current.document.strings[key] = normalizedEntry
+
+        const nextDirty = new Set(current.dirtyKeys)
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
+          nextDirty.add(key)
+        } else {
+          nextDirty.delete(key)
+        }
+
+        const nextEntries = current.entries.map((e) => {
+          if (e.key !== key) return e
+          return {
+            ...e,
+            states: {
+              ...e.states,
+              [locale]: state,
+            },
+          }
+        })
+
+        const catalogId = current.id
+        persistDocumentPatch(catalogId, key, normalizedEntry)
+
+        return {
+          ...current,
+          entries: nextEntries,
+          dirtyKeys: nextDirty,
+          documentDirty: true,
+        }
+      })
+    },
+    [persistDocumentPatch],
+  )
+
+  const updateShouldTranslate = useCallback(
+    (key: string, shouldTranslate: boolean) => {
+      setCatalog((current) => {
+        if (!current) return current
+
+        const entry = current.document.strings[key]
+        if (!entry) return current
+
+        const clonedEntry = structuredClone(entry)
+
+        if (shouldTranslate) {
+          delete clonedEntry.shouldTranslate
+        } else {
+          clonedEntry.shouldTranslate = false
+        }
+
+        const normalizedEntry = normalizeEntryKeyOrder(clonedEntry)
+        current.document.strings[key] = normalizedEntry
+
+        const nextDirty = new Set(current.dirtyKeys)
+        if (isEntryDirty(key, current.document, current.originalDocument)) {
+          nextDirty.add(key)
+        } else {
+          nextDirty.delete(key)
+        }
+
+        const nextEntries = current.entries.map((e) => {
+          if (e.key !== key) return e
+          return {
+            ...e,
+            shouldTranslate,
+          }
+        })
+
+        const catalogId = current.id
+        persistDocumentPatch(catalogId, key, normalizedEntry)
+
+        return {
+          ...current,
+          entries: nextEntries,
+          dirtyKeys: nextDirty,
+          documentDirty: true,
+        }
+      })
+    },
+    [persistDocumentPatch],
+  )
+
   const restoreKey = useCallback(
     (key: string) => {
       setCatalog((current) => {
@@ -1799,6 +1919,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       removeCatalog,
       updateTranslation,
       updateTranslationComment,
+      updateTranslationState,
+      updateShouldTranslate,
       addLanguage,
       removeLanguage,
       restoreKey,
@@ -1830,6 +1952,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       updateProjectFilePath,
       updateTranslation,
       updateTranslationComment,
+      updateTranslationState,
+      updateShouldTranslate,
     ],
   )
 

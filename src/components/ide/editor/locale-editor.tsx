@@ -87,7 +87,7 @@ const translatableOptions: { value: TranslatableFilter; label: string }[] = [
 ]
 
 export function LocaleEditor({ locale }: { locale: string }) {
-  const { catalog, updateTranslation, updateTranslationComment } = useCatalog()
+  const { catalog, updateTranslation, updateTranslationComment, updateTranslationState, updateShouldTranslate } = useCatalog()
   const { jumpToEntry, clearJumpToEntry } = useEditorStore()
 
   const [stateFilter, setStateFilter] = useState<StateFilter>('all')
@@ -121,13 +121,17 @@ export function LocaleEditor({ locale }: { locale: string }) {
 
   const filteredEntries = useMemo(() => {
     if (!catalog) return []
+
+    // Hide invalid rows with empty keys.
+    const visibleEntries = catalog.entries.filter((entry) => entry.key.trim().length > 0)
+
     const hasAnyFilter =
       stateFilter !== 'all' ||
       extractionFilter !== 'all' ||
       translatableFilter !== 'all' ||
       searchQuery.length > 0
-    if (!hasAnyFilter) return catalog.entries
-    return catalog.entries.filter((entry) =>
+    if (!hasAnyFilter) return visibleEntries
+    return visibleEntries.filter((entry) =>
       matchesFilters(
         entry,
         locale,
@@ -158,6 +162,10 @@ export function LocaleEditor({ locale }: { locale: string }) {
   )
 
   const totalEntries = filteredEntries.length
+  const visibleEntryCount = useMemo(
+    () => (catalog ? catalog.entries.filter((entry) => entry.key.trim().length > 0).length : 0),
+    [catalog],
+  )
 
   // Handle jump requests (from Search/Problems/etc)
   useEffect(() => {
@@ -260,7 +268,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
           className="h-6 max-w-48 text-xs"
         />
         <span className="ml-auto text-[11px] text-muted-foreground">
-          {totalEntries} of {catalog.entries.length} entries
+          {totalEntries} of {visibleEntryCount} entries
         </span>
       </div>
 
@@ -274,6 +282,8 @@ export function LocaleEditor({ locale }: { locale: string }) {
           onScrollToKeyHandled={handleVirtualScrollDone}
           onValueChange={(key, value) => updateTranslation(key, locale, value)}
           onCommentChange={(key, comment) => updateTranslationComment(key, comment)}
+          onStateChange={(key, state) => updateTranslationState(key, locale, state)}
+          onShouldTranslateChange={(key, shouldTranslate) => updateShouldTranslate(key, shouldTranslate)}
         />
       </div>
     </div>

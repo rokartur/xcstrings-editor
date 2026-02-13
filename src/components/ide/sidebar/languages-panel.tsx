@@ -11,17 +11,6 @@ export function LanguagesPanel() {
   const { catalog, removeLanguage } = useCatalog()
   const { openTabs, activeTab, openLocaleTab, closeLocaleTab, setActiveTab } = useEditorStore()
 
-  const sourceLocale = useMemo(() => {
-    if (!catalog) return undefined
-    const documentSource = catalog.document.sourceLanguage
-    if (!documentSource) return undefined
-    return (
-      catalog.languages.find((lang) => lang === documentSource) ??
-      catalog.languages.find((lang) => lang.toLowerCase() === documentSource.toLowerCase()) ??
-      catalog.languages.find((lang) => lang.toLowerCase().startsWith(`${documentSource.toLowerCase()}-`))
-    )
-  }, [catalog])
-
   const stats = useMemo(() => {
     if (!catalog) return new Map<string, { translated: number; total: number }>()
 
@@ -32,19 +21,14 @@ export function LanguagesPanel() {
       for (const entry of catalog.entries) {
         if (!entry.shouldTranslate) continue
 
-        if (sourceLocale) {
-          const sourceVal = (entry.values[sourceLocale] ?? '').trim()
-          if (sourceVal.length === 0) continue
-        }
-
         total += 1
         const val = entry.values[lang] ?? ''
-        if (val.trim().length > 0) translated++
+        if (val.trim().length > 0) translated += 1
       }
       result.set(lang, { translated, total })
     }
     return result
-  }, [catalog, sourceLocale])
+  }, [catalog])
 
   if (!catalog) {
     return (
@@ -109,6 +93,11 @@ export function LanguagesPanel() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
+                  {isSourceLanguage && (
+                    <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
+                      source
+                    </Badge>
+                  )}
                   {isOpen && (
                     <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
                       open
@@ -122,7 +111,7 @@ export function LanguagesPanel() {
             <button
               type="button"
               className={cn(
-                'px-2 text-muted-foreground transition-opacity',
+                'flex w-7 shrink-0 text-muted-foreground transition-opacity',
                 'opacity-0 group-hover:opacity-100',
                 canRemove ? 'hover:text-foreground' : 'cursor-not-allowed opacity-0',
               )}

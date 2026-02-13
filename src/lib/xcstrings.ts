@@ -64,10 +64,43 @@ const EMPTY_STRING = ''
 function resolveLocaleState(entry: XcStringEntry, locale: string): TranslationState {
   const record = entry.localizations?.[locale]
   if (!record) return undefined
+
+  // Check direct stringUnit state (simple strings)
   const state = record.stringUnit?.state
   if (state === 'translated' || state === 'needs_review' || state === 'new' || state === 'stale') {
     return state
   }
+
+  // Check variations (plural / device) – the xcstrings JSON may nest
+  // as variations.plural.one.stringUnit or variations.one.stringUnit.
+  // We walk up to two levels deep to cover both layouts.
+  if (record.variations) {
+    let hasAny = false
+    let allDone = true
+    for (const group of Object.values(record.variations)) {
+      if (group && typeof group === 'object') {
+        // Flat variant: { stringUnit: { state, value } }
+        const su = (group as LocalizationVariant).stringUnit
+        if (su?.state) {
+          hasAny = true
+          if (su.state !== 'translated' && su.state !== 'needs_review') allDone = false
+        } else {
+          // Nested variant group: { one: { stringUnit }, other: { stringUnit } }
+          for (const inner of Object.values(group as Record<string, LocalizationVariant>)) {
+            if (inner?.stringUnit?.state) {
+              hasAny = true
+              if (inner.stringUnit.state !== 'translated' && inner.stringUnit.state !== 'needs_review') allDone = false
+            } else if (inner?.stringUnit?.value !== undefined) {
+              hasAny = true
+              allDone = false
+            }
+          }
+        }
+      }
+    }
+    if (hasAny) return allDone ? 'translated' : 'new'
+  }
+
   return undefined
 }
 
