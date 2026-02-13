@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { TranslationTable } from '@/components/translation-table'
 import type { TranslationRow } from '@/components/translation-table'
@@ -17,6 +18,7 @@ import type { CatalogEntry } from '@/lib/xcstrings'
 type StateFilter = 'all' | 'translated' | 'needs_review' | 'new' | 'stale' | 'untranslated'
 type ExtractionFilter = 'all' | 'manual' | 'extracted_with_value' | 'migrated' | 'stale_key'
 type TranslatableFilter = 'all' | 'yes' | 'no'
+type CommentFilter = 'all' | 'with' | 'without'
 
 function matchesFilters(
   entry: CatalogEntry,
@@ -24,6 +26,7 @@ function matchesFilters(
   stateFilter: StateFilter,
   extractionFilter: ExtractionFilter,
   translatableFilter: TranslatableFilter,
+  commentFilter: CommentFilter,
   searchQuery: string,
   sourceLocale: string | undefined,
 ): boolean {
@@ -50,6 +53,12 @@ function matchesFilters(
     } else {
       if (localeState !== stateFilter) return false
     }
+  }
+
+  if (commentFilter !== 'all') {
+    const hasComment = (entry.comment ?? '').trim().length > 0
+    if (commentFilter === 'with' && !hasComment) return false
+    if (commentFilter === 'without' && hasComment) return false
   }
 
   if (searchQuery) {
@@ -86,15 +95,121 @@ const translatableOptions: { value: TranslatableFilter; label: string }[] = [
   { value: 'no', label: 'Not translatable' },
 ]
 
+const commentOptions: { value: CommentFilter; label: string }[] = [
+  { value: 'all', label: 'All comments' },
+  { value: 'with', label: 'With comments' },
+  { value: 'without', label: 'Without comments' },
+]
+
+function parseStateFilter(value: string | null): StateFilter {
+  switch (value) {
+    case 'translated':
+    case 'needs_review':
+    case 'new':
+    case 'stale':
+    case 'untranslated':
+      return value
+    default:
+      return 'all'
+  }
+}
+
+function parseExtractionFilter(value: string | null): ExtractionFilter {
+  switch (value) {
+    case 'manual':
+    case 'extracted_with_value':
+    case 'migrated':
+    case 'stale_key':
+      return value
+    default:
+      return 'all'
+  }
+}
+
+function parseTranslatableFilter(value: string | null): TranslatableFilter {
+  switch (value) {
+    case 'yes':
+    case 'no':
+      return value
+    default:
+      return 'all'
+  }
+}
+
+function parseCommentFilter(value: string | null): CommentFilter {
+  switch (value) {
+    case 'with':
+    case 'without':
+      return value
+    default:
+      return 'all'
+  }
+}
+
 export function LocaleEditor({ locale }: { locale: string }) {
   const { catalog, updateTranslation, updateTranslationComment, updateTranslationState, updateShouldTranslate } = useCatalog()
   const { jumpToEntry, clearJumpToEntry } = useEditorStore()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [stateFilter, setStateFilter] = useState<StateFilter>('all')
-  const [extractionFilter, setExtractionFilter] = useState<ExtractionFilter>('all')
-  const [translatableFilter, setTranslatableFilter] = useState<TranslatableFilter>('yes')
-  const [searchQuery, setSearchQuery] = useState('')
   const [pendingScrollKey, setPendingScrollKey] = useState<string | null>(null)
+
+  const stateFilter = useMemo(
+    () => parseStateFilter(searchParams.get('state')),
+    [searchParams],
+  )
+  const extractionFilter = useMemo(
+    () => parseExtractionFilter(searchParams.get('extraction')),
+    [searchParams],
+  )
+  const translatableFilter = useMemo(
+    () => parseTranslatableFilter(searchParams.get('translatable')),
+    [searchParams],
+  )
+  const commentFilter = useMemo(
+    () => parseCommentFilter(searchParams.get('comments')),
+    [searchParams],
+  )
+  const searchQuery = useMemo(() => searchParams.get('q') ?? '', [searchParams])
+
+  const updateFilterParams = useCallback((updates: {
+    stateFilter?: StateFilter
+    extractionFilter?: ExtractionFilter
+    translatableFilter?: TranslatableFilter
+    commentFilter?: CommentFilter
+    searchQuery?: string
+  }) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+
+      if (updates.stateFilter !== undefined) {
+        if (updates.stateFilter === 'all') next.delete('state')
+        else next.set('state', updates.stateFilter)
+      }
+
+      if (updates.extractionFilter !== undefined) {
+        if (updates.extractionFilter === 'all') next.delete('extraction')
+        else next.set('extraction', updates.extractionFilter)
+      }
+
+      if (updates.translatableFilter !== undefined) {
+        if (updates.translatableFilter === 'all') next.delete('translatable')
+        else next.set('translatable', updates.translatableFilter)
+      }
+
+      if (updates.commentFilter !== undefined) {
+        if (updates.commentFilter === 'all') next.delete('comments')
+        else next.set('comments', updates.commentFilter)
+      }
+
+      if (updates.searchQuery !== undefined) {
+        const normalized = updates.searchQuery.trim()
+        if (normalized.length === 0) next.delete('q')
+        else next.set('q', updates.searchQuery)
+      }
+
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const sourceLocale = useMemo(() => {
     if (!catalog) return undefined
@@ -129,6 +244,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
       stateFilter !== 'all' ||
       extractionFilter !== 'all' ||
       translatableFilter !== 'all' ||
+      commentFilter !== 'all' ||
       searchQuery.length > 0
     if (!hasAnyFilter) return visibleEntries
     return visibleEntries.filter((entry) =>
@@ -138,11 +254,12 @@ export function LocaleEditor({ locale }: { locale: string }) {
         stateFilter,
         extractionFilter,
         translatableFilter,
+        commentFilter,
         searchQuery,
         sourceLocale,
       ),
     )
-  }, [catalog, locale, sourceLocale, stateFilter, extractionFilter, translatableFilter, searchQuery])
+  }, [catalog, locale, sourceLocale, stateFilter, extractionFilter, translatableFilter, commentFilter, searchQuery])
 
   const stateFilterLabel = useMemo(
     () => stateOptions.find((opt) => opt.value === stateFilter)?.label ?? 'All states',
@@ -159,6 +276,11 @@ export function LocaleEditor({ locale }: { locale: string }) {
       translatableOptions.find((opt) => opt.value === translatableFilter)?.label ??
       'All translatable',
     [translatableFilter],
+  )
+
+  const commentFilterLabel = useMemo(
+    () => commentOptions.find((opt) => opt.value === commentFilter)?.label ?? 'All comments',
+    [commentFilter],
   )
 
   const totalEntries = filteredEntries.length
@@ -180,13 +302,16 @@ export function LocaleEditor({ locale }: { locale: string }) {
     }
 
     // Ensure the entry is visible: reset filters before jump scrolling.
-    setStateFilter('all')
-    setExtractionFilter('all')
-    setTranslatableFilter('yes')
-    setSearchQuery('')
+    updateFilterParams({
+      stateFilter: 'all',
+      extractionFilter: 'all',
+      translatableFilter: 'all',
+      commentFilter: 'all',
+      searchQuery: '',
+    })
     setPendingScrollKey(jumpToEntry.key)
     clearJumpToEntry()
-  }, [catalog, clearJumpToEntry, jumpToEntry, locale])
+  }, [catalog, clearJumpToEntry, jumpToEntry, locale, updateFilterParams])
 
   const rows = useMemo(() => {
     return filteredEntries.map<TranslationRow>((entry) => {
@@ -217,7 +342,10 @@ export function LocaleEditor({ locale }: { locale: string }) {
     <div className="flex h-full min-h-0 flex-col">
       {/* Filter toolbar */}
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-1.5">
-        <Select value={stateFilter} onValueChange={(value) => setStateFilter(value as StateFilter)}>
+        <Select
+          value={stateFilter}
+          onValueChange={(value) => updateFilterParams({ stateFilter: value as StateFilter })}
+        >
           <SelectTrigger size="sm" className="h-6 min-w-32 text-xs">
             <SelectValue placeholder="All states">{stateFilterLabel}</SelectValue>
           </SelectTrigger>
@@ -232,7 +360,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
 
         <Select
           value={extractionFilter}
-          onValueChange={(value) => setExtractionFilter(value as ExtractionFilter)}
+          onValueChange={(value) => updateFilterParams({ extractionFilter: value as ExtractionFilter })}
         >
           <SelectTrigger size="sm" className="h-6 min-w-32 text-xs">
             <SelectValue placeholder="All extraction">{extractionFilterLabel}</SelectValue>
@@ -248,7 +376,7 @@ export function LocaleEditor({ locale }: { locale: string }) {
 
         <Select
           value={translatableFilter}
-          onValueChange={(value) => setTranslatableFilter(value as TranslatableFilter)}
+          onValueChange={(value) => updateFilterParams({ translatableFilter: value as TranslatableFilter })}
         >
           <SelectTrigger size="sm" className="h-6 min-w-28 text-xs">
             <SelectValue placeholder="All translatable">{translatableFilterLabel}</SelectValue>
@@ -261,9 +389,26 @@ export function LocaleEditor({ locale }: { locale: string }) {
             ))}
           </SelectContent>
         </Select>
+
+        <Select
+          value={commentFilter}
+          onValueChange={(value) => updateFilterParams({ commentFilter: value as CommentFilter })}
+        >
+          <SelectTrigger size="sm" className="h-6 min-w-32 text-xs">
+            <SelectValue placeholder="All comments">{commentFilterLabel}</SelectValue>
+          </SelectTrigger>
+          <SelectContent align="start">
+            {commentOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Input
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={(e) => updateFilterParams({ searchQuery: e.target.value })}
           placeholder="Filter keys..."
           className="h-6 max-w-48 text-xs"
         />

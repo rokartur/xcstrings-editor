@@ -1,14 +1,14 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, EyeOff, Languages, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, Languages, MoreHorizontal, ShieldCheck } from 'lucide-react'
 
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from './ui/context-menu'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu'
 import { Textarea } from './ui/textarea'
 import { cn } from '../lib/utils'
 import type { TranslationState, ExtractionState } from '../lib/xcstrings'
@@ -230,9 +230,7 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
 }: DebouncedRowProps) {
   const [localValue, setLocalValue] = useState(row.value)
   const [localComment, setLocalComment] = useState(row.comment ?? '')
-  const [isTargetFocused, setIsTargetFocused] = useState(false)
   const [markSpecialStart, setMarkSpecialStart] = useState(false)
-  const targetTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const commentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editedSinceFocusRef = useRef(false)
@@ -304,161 +302,151 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   }, [onCommentChange, onValueChange, row.key])
 
   const handleTargetFocus = useCallback(() => {
-    setIsTargetFocused(true)
     editedSinceFocusRef.current = false
   }, [])
 
   const handleTargetBlur = useCallback(() => {
-    setIsTargetFocused(false)
-
     if (!editedSinceFocusRef.current) return
 
     const trimmedStart = localValue.trimStart()
     setMarkSpecialStart(STARTS_WITH_SPECIAL_TOKEN.test(trimmedStart))
   }, [localValue])
 
-  useEffect(() => {
-    if (isTargetFocused) {
-      targetTextareaRef.current?.focus()
-    }
-  }, [isTargetFocused])
-
   return (
-    <ContextMenu>
-      <ContextMenuTrigger>
-        <div
-          data-translation-key={row.key}
-          className={cn(
-            'group rounded-md border border-border/60 bg-background',
-            'transition-colors hover:bg-muted/10',
-            row.shouldTranslate === false && 'opacity-60',
-          )}
-        >
-          <div
-            className={cn(
-              'grid gap-2 p-2',
-              isSourceLocale
-                ? 'min-w-180 grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]'
-                : 'min-w-230 grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]',
-            )}
-          >
-            {/* Key */}
-            <div className="min-w-0">
-              <span className="block text-xs font-medium leading-snug whitespace-normal wrap-break-word">
-                {row.key}
-              </span>
-            </div>
+    <div
+      data-translation-key={row.key}
+      className={cn(
+        'group rounded-md border border-border/60 bg-background',
+        'transition-colors hover:bg-muted/10',
+        row.shouldTranslate === false && 'opacity-60',
+      )}
+    >
+      <div
+        className={cn(
+          'grid gap-2 p-2',
+          isSourceLocale
+            ? 'min-w-180 grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]'
+            : 'min-w-230 grid-cols-[minmax(160px,1.1fr)_minmax(220px,2fr)_minmax(220px,2fr)_minmax(180px,1.4fr)_minmax(140px,0.9fr)]',
+        )}
+      >
+        {/* Key */}
+        <div className="min-w-0">
+          <span className="block text-xs font-medium leading-snug whitespace-normal wrap-break-word">
+            {row.key}
+          </span>
+        </div>
 
-            {/* Source — hidden when editing the source locale */}
-            {!isSourceLocale && (
-              <div className="min-w-0 rounded bg-muted/20 p-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap">
-                {row.sourceValue !== undefined ? (
-                  row.sourceValue.length > 0 ? (
-                    <HighlightedValue text={row.sourceValue} />
-                  ) : (
-                    <span className="text-muted-foreground/70">(empty)</span>
-                  )
-                ) : (
-                  <span className="text-muted-foreground/70">(no data)</span>
-                )}
-              </div>
-            )}
-
-            {/* Target */}
-            <div className="min-w-0">
-              {row.shouldTranslate === false ? (
-                <Textarea
-                  value={localValue}
-                  onChange={handleChange}
-                  placeholder="Not translatable"
-                  disabled
-                  className={cn('field-sizing-content cursor-not-allowed opacity-60')}
-                />
-              ) : isTargetFocused ? (
-                <Textarea
-                  ref={targetTextareaRef}
-                  value={localValue}
-                  onChange={handleChange}
-                  onFocus={handleTargetFocus}
-                  onBlur={handleTargetBlur}
-                  placeholder="Type the translated copy here"
-                  className={cn('field-sizing-content')}
-                />
+        {/* Source — hidden when editing the source locale */}
+        {!isSourceLocale && (
+          <div className="min-w-0 rounded bg-muted/20 p-1.5 text-[11px] text-muted-foreground whitespace-pre-wrap">
+            {row.sourceValue !== undefined ? (
+              row.sourceValue.length > 0 ? (
+                <HighlightedValue text={row.sourceValue} />
               ) : (
-                <button
-                  type="button"
-                  className={cn(
-                    'box-border min-h-5.5 w-full rounded-md border border-input bg-input/20 px-2 py-0.5 text-left text-sm leading-snug transition-colors outline-none md:text-xs md:leading-snug dark:bg-input/30',
-                    'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30',
-                    'whitespace-pre-wrap break-words cursor-text',
-                    markSpecialStart && 'border-amber-500/60 bg-amber-500/5',
-                  )}
-                  onClick={handleTargetFocus}
-                  onFocus={handleTargetFocus}
-                >
-                  {localValue.trim().length > 0 ? (
-                    <HighlightedValue text={localValue} />
-                  ) : (
-                    <span className="text-muted-foreground">Type the translated copy here</span>
-                  )}
-                </button>
+                <span className="text-muted-foreground/70">(empty)</span>
+              )
+            ) : (
+              <span className="text-muted-foreground/70">(no data)</span>
+            )}
+          </div>
+        )}
+
+        {/* Target */}
+        <div className="min-w-0">
+          {row.shouldTranslate === false ? (
+            <Textarea
+              value={localValue}
+              onChange={handleChange}
+              placeholder="Not translatable"
+              disabled
+              className={cn('field-sizing-content cursor-not-allowed opacity-60')}
+            />
+          ) : (
+            <Textarea
+              rows={1}
+              value={localValue}
+              onChange={handleChange}
+              onFocus={handleTargetFocus}
+              onBlur={handleTargetBlur}
+              placeholder="Type the translated copy here"
+              className={cn(
+                'field-sizing-content',
+                markSpecialStart && 'border-amber-500/60 bg-amber-500/5',
               )}
+            />
+          )}
+        </div>
+
+        {/* Comment */}
+        <div className="min-w-0">
+          <Textarea
+            value={localComment}
+            onChange={handleCommentChange}
+            placeholder="Comment for this key (optional)"
+            className={cn('field-sizing-content')}
+          />
+        </div>
+
+        {/* Badges + row actions */}
+        <div className="min-w-0">
+          <div className="grid min-h-4.5 grid-cols-[minmax(0,1fr)_auto] items-start gap-1.5">
+            <div className="min-w-0">
+              <MetadataBadges row={row} isSourceLocale={isSourceLocale} />
             </div>
 
-            {/* Comment */}
-            <div className="min-w-0">
-              <Textarea
-                value={localComment}
-                onChange={handleCommentChange}
-                placeholder="Comment for this key (optional)"
-                className={cn('field-sizing-content')}
-              />
-            </div>
-
-            {/* Badges */}
-            <div className="min-w-0">
-              <div className="min-h-4.5">
-                <MetadataBadges row={row} isSourceLocale={isSourceLocale} />
-              </div>
+            <div className="justify-self-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={cn(
+                    'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors',
+                    'hover:bg-muted hover:text-foreground',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                  )}
+                  aria-label={`Actions for ${row.key}`}
+                  title="Key actions"
+                >
+                  <MoreHorizontal className="size-3.5" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="bottom" sideOffset={6} className="w-auto min-w-44">
+                {row.state !== 'needs_review' && (
+                  <DropdownMenuItem
+                    onClick={() => onStateChange?.(row.key, 'needs_review')}
+                  >
+                    <Eye className="size-3.5 text-amber-500" strokeWidth={1.5} />
+                    Mark for Review
+                  </DropdownMenuItem>
+                )}
+                {row.state === 'needs_review' && (
+                  <DropdownMenuItem
+                    onClick={() => onStateChange?.(row.key, 'translated')}
+                  >
+                    <ShieldCheck className="size-3.5 text-emerald-500" strokeWidth={1.5} />
+                    Mark as Reviewed
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                {row.shouldTranslate === false ? (
+                  <DropdownMenuItem
+                    onClick={() => onShouldTranslateChange?.(row.key, true)}
+                  >
+                    <Languages className="size-3.5 text-blue-500" strokeWidth={1.5} />
+                    Mark for Translation
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onClick={() => onShouldTranslateChange?.(row.key, false)}
+                  >
+                    <EyeOff className="size-3.5 text-rose-500" strokeWidth={1.5} />
+                    Mark as &ldquo;Don&rsquo;t Translate&rdquo;
+                  </DropdownMenuItem>
+                )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        {row.state !== 'needs_review' && (
-          <ContextMenuItem
-            onClick={() => onStateChange?.(row.key, 'needs_review')}
-          >
-            <Eye className="size-3.5 text-amber-500" strokeWidth={1.5} />
-            Mark for Review
-          </ContextMenuItem>
-        )}
-        {row.state === 'needs_review' && (
-          <ContextMenuItem
-            onClick={() => onStateChange?.(row.key, 'translated')}
-          >
-            <ShieldCheck className="size-3.5 text-emerald-500" strokeWidth={1.5} />
-            Mark as Reviewed
-          </ContextMenuItem>
-        )}
-        <ContextMenuSeparator />
-        {row.shouldTranslate === false ? (
-          <ContextMenuItem
-            onClick={() => onShouldTranslateChange?.(row.key, true)}
-          >
-            <Languages className="size-3.5 text-blue-500" strokeWidth={1.5} />
-            Mark for Translation
-          </ContextMenuItem>
-        ) : (
-          <ContextMenuItem
-            onClick={() => onShouldTranslateChange?.(row.key, false)}
-          >
-            <EyeOff className="size-3.5 text-rose-500" strokeWidth={1.5} />
-            Mark as &ldquo;Don&rsquo;t Translate&rdquo;
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+      </div>
+    </div>
   )
 })
 
