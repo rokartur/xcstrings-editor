@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Globe, X } from 'lucide-react'
+import { Globe, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { useCatalog } from '@/lib/catalog-context'
@@ -145,7 +145,7 @@ export function LanguagesPanel() {
                 }
               }}
             >
-              <X className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+              <Trash2 className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
             </button>
           </div>
         )
