@@ -23,7 +23,20 @@ export function LanguagesPanel() {
 
         total += 1
         const val = entry.values[lang] ?? ''
-        if (val.trim().length > 0) translated += 1
+        const state = entry.states[lang]
+        // Count as translated only if:
+        // 1. It has a value
+        // 2. It is not marked as needing review, new, or stale (translation state)
+        // 3. It is not a stale key (extraction state)
+        if (
+          val.trim().length > 0 &&
+          state !== 'needs_review' &&
+          state !== 'new' &&
+          state !== 'stale' &&
+          entry.extractionState !== 'stale'
+        ) {
+          translated += 1
+        }
       }
       result.set(lang, { translated, total })
     }
@@ -61,7 +74,7 @@ export function LanguagesPanel() {
             : formattedLocale
 
         const stat = stats.get(lang)
-        const pct = stat && stat.total > 0 ? Math.round((stat.translated / stat.total) * 100) : 0
+        const pct = stat && stat.total > 0 ? Math.floor((stat.translated / stat.total) * 100) : 0
         const isOpen = openTabs.includes(lang)
         const isActive = activeTab === lang
 

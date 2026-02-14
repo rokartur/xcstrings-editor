@@ -71,34 +71,52 @@ function resolveLocaleState(entry: XcStringEntry, locale: string): TranslationSt
     return state
   }
 
-  // Check variations (plural / device) – the xcstrings JSON may nest
-  // as variations.plural.one.stringUnit or variations.one.stringUnit.
-  // We walk up to two levels deep to cover both layouts.
+  // Check variations (plural / device)
   if (record.variations) {
     let hasAny = false
-    let allDone = true
+    let hasIncomplete = false
+    let hasNeedsReview = false
+
+    const checkUnit = (su: StringUnit | undefined) => {
+      if (!su) return // Should not happen in iteration usually
+
+      if (su.state) {
+        hasAny = true
+        if (su.state === 'needs_review') {
+          hasNeedsReview = true
+        } else if (su.state !== 'translated') {
+          // new, stale, or unknown
+          hasIncomplete = true
+        }
+      } else if (su.value !== undefined) {
+        hasAny = true
+        // Implicitly translated, do nothing
+      } else {
+        // No state, no value -> incomplete
+        hasIncomplete = true
+      }
+    }
+
     for (const group of Object.values(record.variations)) {
       if (group && typeof group === 'object') {
-        // Flat variant: { stringUnit: { state, value } }
         const su = (group as LocalizationVariant).stringUnit
-        if (su?.state) {
-          hasAny = true
-          if (su.state !== 'translated' && su.state !== 'needs_review') allDone = false
+        if (su) {
+          // Flat variant
+          checkUnit(su)
         } else {
-          // Nested variant group: { one: { stringUnit }, other: { stringUnit } }
+          // Nested variant group
           for (const inner of Object.values(group as Record<string, LocalizationVariant>)) {
-            if (inner?.stringUnit?.state) {
-              hasAny = true
-              if (inner.stringUnit.state !== 'translated' && inner.stringUnit.state !== 'needs_review') allDone = false
-            } else if (inner?.stringUnit?.value !== undefined) {
-              hasAny = true
-              allDone = false
-            }
+            checkUnit(inner?.stringUnit)
           }
         }
       }
     }
-    if (hasAny) return allDone ? 'translated' : 'new'
+
+    if (hasAny) {
+      if (hasIncomplete) return 'new'
+      if (hasNeedsReview) return 'needs_review'
+      return 'translated'
+    }
   }
 
   return undefined

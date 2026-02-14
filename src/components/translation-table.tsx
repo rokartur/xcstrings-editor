@@ -156,7 +156,7 @@ const extractionLabelMap: Record<string, { label: string; className: string }> =
   manual: { label: 'Manual', className: 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300' },
   extracted_with_value: { label: 'Extracted', className: 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300' },
   migrated: { label: 'Migrated', className: 'border-indigo-500/40 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300' },
-  stale: { label: 'Stale key', className: 'border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300' },
+  stale: { label: 'Stale', className: 'border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300' },
 }
 
 function MetadataBadges({ row, isSourceLocale }: { row: TranslationRow; isSourceLocale: boolean }) {

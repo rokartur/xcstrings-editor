@@ -7,24 +7,25 @@ import { SearchPanel } from './search-panel'
 
 export function SidebarContainer() {
   const sidebarPanel = useEditorStore((s) => s.sidebarPanel)
+  const activeSidebarPanel = sidebarPanel === 'filters' ? 'explorer' : sidebarPanel
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {sidebarPanel === 'explorer' && 'Explorer'}
-          {sidebarPanel === 'search' && 'Search'}
-          {sidebarPanel === 'problems' && 'Problems'}
+          {activeSidebarPanel === 'explorer' && 'Explorer'}
+          {activeSidebarPanel === 'search' && 'Search'}
+          {activeSidebarPanel === 'problems' && 'Problems'}
         </span>
       </div>
-      {sidebarPanel === 'problems' ? (
+      {activeSidebarPanel === 'problems' ? (
         <div className="min-h-0 flex-1 overflow-hidden">
           <ProblemsPanel />
         </div>
       ) : (
         <ScrollArea className="flex-1">
-          {sidebarPanel === 'explorer' && <ExplorerPanel />}
-          {sidebarPanel === 'search' && <SearchPanel />}
+          {activeSidebarPanel === 'explorer' && <ExplorerPanel />}
+          {activeSidebarPanel === 'search' && <SearchPanel />}
         </ScrollArea>
       )}
     </div>

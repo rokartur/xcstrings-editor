@@ -50,6 +50,9 @@ function matchesFilters(
       // Treat empty string as untranslated even if state metadata says otherwise.
       // This keeps filters consistent with the % stats (which are based on value presence).
       if (val.length > 0) return false
+    } else if (stateFilter === 'stale') {
+      // "Stale" can come from translation state or extraction state in xcstrings.
+      if (localeState !== 'stale' && entry.extractionState !== 'stale') return false
     } else {
       if (localeState !== stateFilter) return false
     }
@@ -86,7 +89,7 @@ const extractionOptions: { value: ExtractionFilter; label: string }[] = [
   { value: 'manual', label: 'Manual' },
   { value: 'extracted_with_value', label: 'Extracted' },
   { value: 'migrated', label: 'Migrated' },
-  { value: 'stale_key', label: 'Stale key' },
+  { value: 'stale_key', label: 'Stale' },
 ]
 
 const translatableOptions: { value: TranslatableFilter; label: string }[] = [
@@ -246,9 +249,11 @@ export function LocaleEditor({ locale }: { locale: string }) {
       translatableFilter !== 'all' ||
       commentFilter !== 'all' ||
       searchQuery.length > 0
+
     if (!hasAnyFilter) return visibleEntries
-    return visibleEntries.filter((entry) =>
-      matchesFilters(
+
+    return visibleEntries.filter((entry) => {
+      return matchesFilters(
         entry,
         locale,
         stateFilter,
@@ -257,8 +262,8 @@ export function LocaleEditor({ locale }: { locale: string }) {
         commentFilter,
         searchQuery,
         sourceLocale,
-      ),
-    )
+      )
+    })
   }, [catalog, locale, sourceLocale, stateFilter, extractionFilter, translatableFilter, commentFilter, searchQuery])
 
   const stateFilterLabel = useMemo(

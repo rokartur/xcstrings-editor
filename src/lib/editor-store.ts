@@ -1,13 +1,15 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type SidebarPanel = 'explorer' | 'search' | 'problems'
+export type SidebarPanel = 'explorer' | 'search' | 'problems' | 'filters'
+export type FilterState = 'all' | 'stale' | 'needs_review' | 'new' | 'translated' | 'ignored' | 'untranslated'
 
 export const DIFF_TAB_ID = '__diff__'
 
 interface EditorState {
   sidebarVisible: boolean
   sidebarPanel: SidebarPanel
+  filter: FilterState
   openTabs: string[]
   activeTab: string | null
   jumpToEntry: { locale: string; key: string } | null
@@ -19,6 +21,7 @@ interface EditorState {
 interface EditorActions {
   toggleSidebar: () => void
   setSidebarPanel: (panel: SidebarPanel) => void
+  setFilter: (filter: FilterState) => void
   openLocaleTab: (locale: string) => void
   openDiffTab: () => void
   closeLocaleTab: (locale: string) => void
@@ -36,6 +39,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     (set) => ({
       sidebarVisible: true,
       sidebarPanel: 'explorer',
+      filter: 'all',
       openTabs: [],
       activeTab: null,
       jumpToEntry: null,
@@ -53,6 +57,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           }
           return { sidebarPanel: panel, sidebarVisible: true }
         }),
+
+      setFilter: (filter) => set({ filter }),
 
       openLocaleTab: (locale) =>
         set((state) => {
@@ -103,6 +109,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       partialize: (state) => ({
         sidebarVisible: state.sidebarVisible,
         sidebarPanel: state.sidebarPanel,
+        filter: state.filter,
         openTabs: state.openTabs,
         activeTab: state.activeTab,
       }),
