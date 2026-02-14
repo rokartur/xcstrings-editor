@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Globe, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { useCatalog } from '@/lib/catalog-context'
@@ -15,7 +15,13 @@ export function LanguagesPanel() {
     if (!catalog) return new Map<string, { translated: number; total: number }>()
 
     const result = new Map<string, { translated: number; total: number }>()
+    const sourceLanguage = catalog.document.sourceLanguage
+      ? formatLocaleCode(catalog.document.sourceLanguage).toLowerCase()
+      : null
     for (const lang of catalog.languages) {
+      if (sourceLanguage && formatLocaleCode(lang).toLowerCase() === sourceLanguage) {
+        continue
+      }
       let translated = 0
       let total = 0
       for (const entry of catalog.entries) {
@@ -96,27 +102,30 @@ export function LanguagesPanel() {
           >
             <button
               type="button"
-              className="flex flex-1 items-center gap-2 px-3 py-1.5 text-left"
+              className="flex flex-1 items-center px-3 py-1.5 text-left"
               onClick={() => {
                 openLocaleTab(lang)
                 setActiveTab(lang)
               }}
             >
-              <Globe className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.5} />
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <div className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate font-medium">{displayLabel}</span>
-                  {isSourceLanguage && (
-                    <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
-                      source
-                    </Badge>
-                  )}
-                  {isOpen && (
-                    <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
-                      open
-                    </Badge>
-                  )}
-                  <span className="ml-auto w-max shrink-0 text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    {isSourceLanguage && (
+                      <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
+                        source
+                      </Badge>
+                    )}
+                    {isOpen && (
+                      <Badge variant="secondary" className="h-4 shrink-0 whitespace-nowrap px-1 text-[10px]">
+                        open
+                      </Badge>
+                    )}
+                    {!isSourceLanguage && (
+                      <span className="w-max shrink-0 text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </button>
@@ -124,7 +133,7 @@ export function LanguagesPanel() {
             <button
               type="button"
               className={cn(
-                'flex w-7 shrink-0 text-muted-foreground transition-opacity',
+                'flex w-7 shrink-0 items-center justify-center text-muted-foreground transition-opacity',
                 'opacity-0 group-hover:opacity-100',
                 canRemove ? 'hover:text-foreground' : 'cursor-not-allowed opacity-0',
               )}
