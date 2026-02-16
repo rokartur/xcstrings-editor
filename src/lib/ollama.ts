@@ -45,6 +45,23 @@ function localeToLanguageName(locale: string): string {
   }
 }
 
+function getCandidateBaseUrls(baseUrl: string): string[] {
+  const normalized = baseUrl.replace(/\/+$/, '')
+  const candidates = new Set<string>([normalized])
+
+  try {
+    const parsed = new URL(normalized)
+    if (parsed.hostname === 'localhost') {
+      parsed.hostname = '127.0.0.1'
+      candidates.add(parsed.toString().replace(/\/+$/, ''))
+    }
+  } catch {
+    // Ignore invalid URLs here; fetch will fail with a proper error later.
+  }
+
+  return [...candidates]
+}
+
 function extractJsonTranslation(raw: string): string | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
@@ -121,45 +138,62 @@ function extractTranslation(raw: string, targetLocale: string): string {
 }
 
 export async function checkConnection(baseUrl: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) })
-    return res.ok
-  } catch {
-    return false
+  const candidates = getCandidateBaseUrls(baseUrl)
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(`${candidate}/api/tags`, { signal: AbortSignal.timeout(5000) })
+      if (res.ok) return true
+    } catch {
+      // Try next candidate.
+    }
   }
+  return false
 }
 
 export async function listModels(baseUrl: string): Promise<OllamaModel[]> {
-  try {
-    const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) })
-    if (!res.ok) return []
-    const data = await res.json()
-    return (data.models ?? []) as OllamaModel[]
-  } catch {
-    return []
+  const candidates = getCandidateBaseUrls(baseUrl)
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(`${candidate}/api/tags`, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) continue
+      const data = await res.json()
+      return (data.models ?? []) as OllamaModel[]
+    } catch {
+      // Try next candidate.
+    }
   }
+  return []
 }
 
 export async function translateText(opts: TranslateOptions): Promise<string> {
   const prompt = buildPrompt(opts)
 
-  let res: Response
-  try {
-    res = await fetch(`${opts.baseUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: opts.model,
-        prompt,
-        stream: true,
-        options: { temperature: 0.1 },
-      }),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-    })
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') throw err
+  const candidates = getCandidateBaseUrls(opts.baseUrl)
+  let res: Response | null = null
+
+  for (const candidate of candidates) {
+    try {
+      res = await fetch(`${candidate}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: opts.model,
+          prompt,
+          stream: true,
+          options: { temperature: 0.1 },
+        }),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      })
+      break
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      // Try next candidate.
+    }
+  }
+
+  if (!res) {
     throw new OllamaError(
-      'Cannot connect to Ollama. Make sure it is running.',
+      'Cannot connect to Ollama. Make sure it is running (try 127.0.0.1:11434).',
       'CONNECTION_FAILED',
     )
   }

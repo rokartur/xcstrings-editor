@@ -81,7 +81,7 @@ export function AiSettingsDialog() {
                   setUrlDraft(e.target.value)
                   setTestResult(null)
                 }}
-                placeholder="http://localhost:11434"
+                placeholder="http://127.0.0.1:11434"
                 className="flex-1 text-xs"
               />
               <Button

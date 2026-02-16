@@ -18,7 +18,7 @@ interface AiSettingsActions {
 export const useAiSettingsStore = create<AiSettingsState & AiSettingsActions>()(
   persist(
     (set) => ({
-      ollamaUrl: 'http://localhost:11434',
+      ollamaUrl: 'http://127.0.0.1:11434',
       model: 'hf.co/DevQuasar/ModelSpace.GemmaX2-28-9B-v0.1-GGUF:Q8_0',
       isConnected: false,
       availableModels: [],
