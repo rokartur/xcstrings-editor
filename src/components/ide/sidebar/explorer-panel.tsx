@@ -162,7 +162,7 @@ export function ExplorerPanel() {
       let translated = 0
       let total = 0
       for (const entry of catalog.entries) {
-        if (!entry.shouldTranslate) continue
+        if (!entry.shouldTranslate || entry.key.trim().length === 0) continue
 
         total += 1
         const val = entry.values[lang] ?? ''
