@@ -7,6 +7,7 @@ import { useEditorStore } from '@/lib/editor-store'
 
 import { ActivityBar } from './activity-bar'
 import { AddLanguageDialog } from './add-language-dialog'
+import { AiSettingsDialog } from '@/components/ai-settings-dialog'
 import { EditorArea } from './editor/editor-area'
 import { ExportDialog } from './export-dialog'
 import { ImportDialog } from './import-dialog'
@@ -48,6 +49,7 @@ export function IdeLayout() {
       <ImportDialog />
       <ExportDialog />
       <AddLanguageDialog />
+      <AiSettingsDialog />
       <Toaster />
     </div>
   )

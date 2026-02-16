@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, EyeOff, Languages, MoreHorizontal, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, Languages, Loader2, MoreHorizontal, ShieldCheck, Sparkles } from 'lucide-react'
 
 import {
   DropdownMenu,
@@ -37,6 +37,8 @@ interface TranslationTableProps {
   onCommentChange: (key: string, comment: string) => void
   onStateChange: ((key: string, state: TranslationState) => void) | undefined
   onShouldTranslateChange: ((key: string, shouldTranslate: boolean) => void) | undefined
+  onAiTranslate?: ((key: string) => void) | undefined
+  aiTranslatingKeys?: Set<string> | undefined
 }
 
 const DEBOUNCE_MS = 300
@@ -218,6 +220,8 @@ interface DebouncedRowProps {
   onCommentChange: (key: string, comment: string) => void
   onStateChange: ((key: string, state: TranslationState) => void) | undefined
   onShouldTranslateChange: ((key: string, shouldTranslate: boolean) => void) | undefined
+  onAiTranslate?: ((key: string) => void) | undefined
+  isAiTranslating?: boolean | undefined
 }
 
 const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
@@ -227,6 +231,8 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   onCommentChange,
   onStateChange,
   onShouldTranslateChange,
+  onAiTranslate,
+  isAiTranslating,
 }: DebouncedRowProps) {
   const [localValue, setLocalValue] = useState(row.value)
   const [localComment, setLocalComment] = useState(row.comment ?? '')
@@ -408,6 +414,23 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
                   <MoreHorizontal className="size-3.5" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" side="bottom" sideOffset={6} className="w-auto min-w-44">
+                {/* AI Translate */}
+                {!isSourceLocale && onAiTranslate && row.shouldTranslate !== false && (
+                  <>
+                    <DropdownMenuItem
+                      disabled={isAiTranslating}
+                      onClick={() => onAiTranslate(row.key)}
+                    >
+                      {isAiTranslating ? (
+                        <Loader2 className="size-3.5 animate-spin text-violet-500" strokeWidth={1.5} />
+                      ) : (
+                        <Sparkles className="size-3.5 text-violet-500" strokeWidth={1.5} />
+                      )}
+                      {isAiTranslating ? 'Translating…' : 'Translate with AI'}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 {row.state !== 'needs_review' && (
                   <DropdownMenuItem
                     onClick={() => onStateChange?.(row.key, 'needs_review')}
@@ -460,6 +483,8 @@ export function TranslationTable({
   onCommentChange,
   onStateChange,
   onShouldTranslateChange,
+  onAiTranslate,
+  aiTranslatingKeys,
 }: TranslationTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null)
 
@@ -604,6 +629,8 @@ export function TranslationTable({
                     onCommentChange={onCommentChange}
                     onStateChange={onStateChange}
                     onShouldTranslateChange={onShouldTranslateChange}
+                    onAiTranslate={onAiTranslate}
+                    isAiTranslating={aiTranslatingKeys?.has(row.key)}
                   />
                 </div>
               )

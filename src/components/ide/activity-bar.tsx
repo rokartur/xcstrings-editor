@@ -1,13 +1,15 @@
-import { CircleAlert, FolderTree, Search } from 'lucide-react'
+import { Bot, CircleAlert, FolderTree, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useAiSettingsStore } from '@/lib/ai-settings-store'
 import { useEditorStore } from '@/lib/editor-store'
 import { cn } from '@/lib/utils'
 
 export function ActivityBar() {
-  const { sidebarPanel, sidebarVisible, setSidebarPanel } =
+  const { sidebarPanel, sidebarVisible, setSidebarPanel, setAiSettingsDialogOpen } =
     useEditorStore()
+  const isConnected = useAiSettingsStore((s) => s.isConnected)
 
   const items = [
     { id: 'explorer' as const, icon: FolderTree, label: 'Explorer' },
@@ -36,6 +38,26 @@ export function ActivityBar() {
           </Tooltip>
         )
       })}
+
+      <div className="mt-auto mb-1">
+        <Tooltip>
+          <TooltipTrigger render={<Button
+              variant="ghost"
+              size="icon"
+              className="relative my-0.5 size-9"
+              onClick={() => setAiSettingsDialogOpen(true)}
+            />}>
+            <Bot className="size-5" strokeWidth={1.5} />
+            <span
+              className={cn(
+                'absolute right-1.5 bottom-1.5 size-2 rounded-full',
+                isConnected ? 'bg-emerald-500' : 'bg-zinc-400',
+              )}
+            />
+          </TooltipTrigger>
+          <TooltipContent side="right">AI Translation Settings</TooltipContent>
+        </Tooltip>
+      </div>
     </div>
   )
 }

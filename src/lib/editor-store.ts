@@ -16,6 +16,7 @@ interface EditorState {
   importDialogOpen: boolean
   exportDialogOpen: boolean
   addLanguageDialogOpen: boolean
+  aiSettingsDialogOpen: boolean
 }
 
 interface EditorActions {
@@ -29,6 +30,7 @@ interface EditorActions {
   setImportDialogOpen: (open: boolean) => void
   setExportDialogOpen: (open: boolean) => void
   setAddLanguageDialogOpen: (open: boolean) => void
+  setAiSettingsDialogOpen: (open: boolean) => void
   closeAllTabs: () => void
   requestJumpToEntry: (locale: string, key: string) => void
   clearJumpToEntry: () => void
@@ -46,6 +48,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       importDialogOpen: false,
       exportDialogOpen: false,
       addLanguageDialogOpen: false,
+      aiSettingsDialogOpen: false,
 
       toggleSidebar: () =>
         set((state) => ({ sidebarVisible: !state.sidebarVisible })),
@@ -98,6 +101,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       setImportDialogOpen: (open) => set({ importDialogOpen: open }),
       setExportDialogOpen: (open) => set({ exportDialogOpen: open }),
       setAddLanguageDialogOpen: (open) => set({ addLanguageDialogOpen: open }),
+      setAiSettingsDialogOpen: (open) => set({ aiSettingsDialogOpen: open }),
 
       closeAllTabs: () => set({ openTabs: [], activeTab: null }),
 

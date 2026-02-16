@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Loader2, Sparkles, X } from 'lucide-react'
 
 import { TranslationTable } from '@/components/translation-table'
 import type { TranslationRow } from '@/components/translation-table'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Select,
@@ -11,8 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useAiSettingsStore } from '@/lib/ai-settings-store'
 import { useCatalog } from '@/lib/catalog-context'
 import { useEditorStore } from '@/lib/editor-store'
+import { translateText, translateBatch } from '@/lib/ollama'
 import type { CatalogEntry } from '@/lib/xcstrings'
 
 type StateFilter = 'all' | 'translated' | 'needs_review' | 'new' | 'stale' | 'untranslated'
@@ -153,8 +157,13 @@ export function LocaleEditor({ locale }: { locale: string }) {
   const { catalog, updateTranslation, updateTranslationComment, updateTranslationState, updateShouldTranslate } = useCatalog()
   const { jumpToEntry, clearJumpToEntry } = useEditorStore()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { ollamaUrl, model, isConnected } = useAiSettingsStore()
 
   const [pendingScrollKey, setPendingScrollKey] = useState<string | null>(null)
+  const [aiTranslatingKeys, setAiTranslatingKeys] = useState<Set<string>>(new Set())
+  const [batchTranslating, setBatchTranslating] = useState(false)
+  const [batchProgress, setBatchProgress] = useState<{ completed: number; total: number } | null>(null)
+  const batchAbortRef = useRef<AbortController | null>(null)
 
   const stateFilter = useMemo(
     () => parseStateFilter(searchParams.get('state')),
@@ -341,6 +350,102 @@ export function LocaleEditor({ locale }: { locale: string }) {
     setPendingScrollKey(null)
   }, [])
 
+  const handleAiTranslate = useCallback(async (key: string) => {
+    if (!catalog || !sourceLocale) return
+    const entry = catalog.entries.find((e) => e.key === key)
+    if (!entry) return
+
+    const sourceText = entry.values[sourceLocale] ?? ''
+    if (!sourceText.trim()) return
+
+    const comment = catalog.document.strings[key]?.comment
+
+    setAiTranslatingKeys((prev) => new Set(prev).add(key))
+    try {
+      const translation = await translateText({
+        text: sourceText,
+        sourceLocale,
+        targetLocale: locale,
+        key,
+        comment,
+        baseUrl: ollamaUrl,
+        model,
+      })
+      if (translation) {
+        updateTranslation(key, locale, translation)
+        updateTranslationState(key, locale, 'needs_review')
+      }
+    } catch {
+      // silently fail for individual translations
+    } finally {
+      setAiTranslatingKeys((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    }
+  }, [catalog, sourceLocale, locale, ollamaUrl, model, updateTranslation, updateTranslationState])
+
+  const missingCount = useMemo(() => {
+    if (!catalog || !sourceLocale || locale === sourceLocale) return 0
+    return catalog.entries.filter((e) => {
+      if (!e.shouldTranslate) return false
+      const val = (e.values[locale] ?? '').trim()
+      const src = (e.values[sourceLocale] ?? '').trim()
+      return val.length === 0 && src.length > 0
+    }).length
+  }, [catalog, locale, sourceLocale])
+
+  const handleBatchTranslate = useCallback(async () => {
+    if (!catalog || !sourceLocale || batchTranslating) return
+
+    const entries = catalog.entries.filter((e) => {
+      if (!e.shouldTranslate) return false
+      const val = (e.values[locale] ?? '').trim()
+      const src = (e.values[sourceLocale] ?? '').trim()
+      return val.length === 0 && src.length > 0
+    })
+
+    if (entries.length === 0) return
+
+    const abort = new AbortController()
+    batchAbortRef.current = abort
+    setBatchTranslating(true)
+    setBatchProgress({ completed: 0, total: entries.length })
+
+    try {
+      await translateBatch({
+        entries: entries.map((e) => ({
+          key: e.key,
+          sourceText: e.values[sourceLocale] ?? '',
+          comment: catalog.document.strings[e.key]?.comment,
+        })),
+        sourceLocale,
+        targetLocale: locale,
+        baseUrl: ollamaUrl,
+        model,
+        signal: abort.signal,
+        onProgress: (completed, total, key, translation) => {
+          setBatchProgress({ completed, total })
+          if (translation) {
+            updateTranslation(key, locale, translation)
+            updateTranslationState(key, locale, 'needs_review')
+          }
+        },
+      })
+    } catch {
+      // abort or error
+    } finally {
+      setBatchTranslating(false)
+      setBatchProgress(null)
+      batchAbortRef.current = null
+    }
+  }, [catalog, sourceLocale, locale, ollamaUrl, model, batchTranslating, updateTranslation, updateTranslationState])
+
+  const handleCancelBatch = useCallback(() => {
+    batchAbortRef.current?.abort()
+  }, [])
+
   if (!catalog) return null
 
   return (
@@ -420,6 +525,36 @@ export function LocaleEditor({ locale }: { locale: string }) {
         <span className="ml-auto text-[11px] text-muted-foreground">
           {totalEntries} of {visibleEntryCount} entries
         </span>
+
+        {/* AI Translate All Missing */}
+        {isConnected && locale !== sourceLocale && (
+          batchTranslating ? (
+            <div className="flex items-center gap-1.5">
+              <Loader2 className="size-3.5 animate-spin text-violet-500" />
+              <span className="text-[11px] text-muted-foreground">
+                {batchProgress ? `${batchProgress.completed}/${batchProgress.total}` : 'Starting…'}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleCancelBatch}
+                title="Cancel"
+              >
+                <X className="size-3" />
+              </Button>
+            </div>
+          ) : missingCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 text-xs text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300"
+              onClick={handleBatchTranslate}
+            >
+              <Sparkles className="size-3.5" strokeWidth={1.5} />
+              Translate {missingCount} missing
+            </Button>
+          ) : null
+        )}
       </div>
 
       {/* Translation table */}
@@ -434,6 +569,8 @@ export function LocaleEditor({ locale }: { locale: string }) {
           onCommentChange={(key, comment) => updateTranslationComment(key, comment)}
           onStateChange={(key, state) => updateTranslationState(key, locale, state)}
           onShouldTranslateChange={(key, shouldTranslate) => updateShouldTranslate(key, shouldTranslate)}
+          onAiTranslate={isConnected && locale !== sourceLocale ? handleAiTranslate : undefined}
+          aiTranslatingKeys={aiTranslatingKeys}
         />
       </div>
     </div>
