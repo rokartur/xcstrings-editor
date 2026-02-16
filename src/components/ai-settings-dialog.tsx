@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 export function AiSettingsDialog() {
   const { aiSettingsDialogOpen, setAiSettingsDialogOpen } = useEditorStore()
   const { ollamaUrl, model, isConnected, availableModels, setOllamaUrl, setModel, setConnected, setAvailableModels } = useAiSettingsStore()
+  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 
   const [urlDraft, setUrlDraft] = useState(ollamaUrl)
   const [testing, setTesting] = useState(false)
@@ -109,7 +110,11 @@ export function AiSettingsDialog() {
                 {testResult === 'success' ? (
                   <><CheckCircle className="size-3.5" strokeWidth={1.5} /> Connected to Ollama</>
                 ) : (
-                  <><XCircle className="size-3.5" strokeWidth={1.5} /> Cannot connect. Is Ollama running?</>
+                  <>
+                    <XCircle className="size-3.5" strokeWidth={1.5} />
+                    Cannot connect. If this app runs on a hosted domain, allow it in Ollama via
+                    OLLAMA_ORIGINS ({browserOrigin}).
+                  </>
                 )}
               </p>
             )}
