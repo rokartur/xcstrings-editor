@@ -80,7 +80,11 @@ export function LanguagesPanel() {
             : formattedLocale
 
         const stat = stats.get(lang)
-        const pct = stat && stat.total > 0 ? Math.floor((stat.translated / stat.total) * 100) : 0
+        const pct = stat && stat.total > 0
+          ? stat.translated >= stat.total
+            ? 100
+            : Math.floor((stat.translated / stat.total) * 100)
+          : 0
         const isOpen = openTabs.includes(lang)
         const isActive = activeTab === lang
 
