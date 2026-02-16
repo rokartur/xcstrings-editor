@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 
 import type { CatalogEntry, ExtractionState, ParsedCatalog, TranslationState, XcStringEntry, XcStringsDocument } from './xcstrings'
 import { parseXcStrings, resolveLocaleValue, serializeDocument, setValueForLocale } from './xcstrings'
-import { applyJsonChanges, detectFormattingOptions } from './json-edit'
+import { applyJsonChanges, detectFormattingOptions, serializeJsonWithFormatting } from './json-edit'
 import { formatLocaleCode } from './locale-options'
 import { addKnownRegion, removeKnownRegion } from './pbxproj'
 
@@ -1087,18 +1087,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
             // modify calls. Each modify() re-parses the entire JSON string, so with
             // 900 keys the O(n²) cost freezes the browser for minutes.
             const formatting = detectFormattingOptions(cur.currentContent)
-            const indent = formatting.insertSpaces
-              ? ' '.repeat(formatting.tabSize ?? 2)
-              : '\t'
-            let nextContent = JSON.stringify(doc, null, indent)
-            // Preserve trailing newline if the original had one
-            if (cur.currentContent.endsWith('\n') && !nextContent.endsWith('\n')) {
-              nextContent += '\n'
-            }
-            // Preserve EOL style (CRLF vs LF)
-            if (formatting.eol === '\r\n' && !nextContent.includes('\r\n')) {
-              nextContent = nextContent.replace(/\n/g, '\r\n')
-            }
+            const nextContent = serializeJsonWithFormatting(doc, cur.currentContent, formatting)
 
             // Persist to storage
             updateStoredState((state) => {
@@ -1280,16 +1269,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
             }
 
             const formatting = detectFormattingOptions(cur.currentContent)
-            const indent = formatting.insertSpaces
-              ? ' '.repeat(formatting.tabSize ?? 2)
-              : '\t'
-            let nextContent = JSON.stringify(doc, null, indent)
-            if (cur.currentContent.endsWith('\n') && !nextContent.endsWith('\n')) {
-              nextContent += '\n'
-            }
-            if (formatting.eol === '\r\n' && !nextContent.includes('\r\n')) {
-              nextContent = nextContent.replace(/\n/g, '\r\n')
-            }
+            const nextContent = serializeJsonWithFormatting(doc, cur.currentContent, formatting)
 
             updateStoredState((state) => {
               const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
@@ -1353,19 +1333,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
                 [{ path: ['strings', patchKey], value: patchValue }],
                 formatting,
               )
-            : (() => {
-                const indent = formatting.insertSpaces
-                  ? ' '.repeat(formatting.tabSize ?? 2)
-                  : '\t'
-                let serialized = JSON.stringify(cur.document, null, indent)
-                if (cur.currentContent.endsWith('\n') && !serialized.endsWith('\n')) {
-                  serialized += '\n'
-                }
-                if (formatting.eol === '\r\n' && !serialized.includes('\r\n')) {
-                  serialized = serialized.replace(/\n/g, '\r\n')
-                }
-                return serialized
-              })()
+            : serializeJsonWithFormatting(cur.document, cur.currentContent, formatting)
 
           updateStoredState((state) => {
             const index = state.catalogs.findIndex((entry) => entry.id === cur.id)
@@ -1863,16 +1831,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
       // Full serialization instead of 900+ individual jsonc-parser patches
       const formatting = detectFormattingOptions(catalog.currentContent)
-      const indent = formatting.insertSpaces
-        ? ' '.repeat(formatting.tabSize ?? 2)
-        : '\t'
-      let freshContent = JSON.stringify(catalog.document, null, indent)
-      if (catalog.currentContent.endsWith('\n') && !freshContent.endsWith('\n')) {
-        freshContent += '\n'
-      }
-      if (formatting.eol === '\r\n' && !freshContent.includes('\r\n')) {
-        freshContent = freshContent.replace(/\n/g, '\r\n')
-      }
+      const freshContent = serializeJsonWithFormatting(catalog.document, catalog.currentContent, formatting)
 
       return {
         fileName: catalog.fileName,

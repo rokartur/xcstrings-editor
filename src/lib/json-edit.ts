@@ -87,3 +87,29 @@ export function applyJsonChanges(
   }
   return current
 }
+
+export function serializeJsonWithFormatting(
+  value: unknown,
+  referenceText: string,
+  formatting: FormattingOptions = detectFormattingOptions(referenceText),
+): string {
+  const indent = formatting.insertSpaces
+    ? ' '.repeat(formatting.tabSize ?? 2)
+    : '\t'
+  let serialized = JSON.stringify(value, null, indent)
+
+  const colonStyle = detectColonSpacing(referenceText)
+  if (colonStyle) {
+    serialized = formatKeyColonSpacing(serialized, colonStyle)
+  }
+
+  if (referenceText.endsWith('\n') && !serialized.endsWith('\n')) {
+    serialized += '\n'
+  }
+
+  if (formatting.eol === '\r\n' && !serialized.includes('\r\n')) {
+    serialized = serialized.replace(/\n/g, '\r\n')
+  }
+
+  return serialized
+}

@@ -161,8 +161,17 @@ const extractionLabelMap: Record<string, { label: string; className: string }> =
   stale: { label: 'Stale', className: 'border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300' },
 }
 
-function MetadataBadges({ row, isSourceLocale }: { row: TranslationRow; isSourceLocale: boolean }) {
+function MetadataBadges({
+  row,
+  isSourceLocale,
+  valueOverride,
+}: {
+  row: TranslationRow
+  isSourceLocale: boolean
+  valueOverride?: string
+}) {
   const badges: { key: string; label: string; className: string }[] = []
+  const effectiveValue = valueOverride ?? row.value ?? ''
 
   if (row.shouldTranslate === false) {
     badges.push({
@@ -180,7 +189,7 @@ function MetadataBadges({ row, isSourceLocale }: { row: TranslationRow; isSource
   // Translation state badges are not relevant for the source language
   if (!isSourceLocale) {
     // Show "Untranslated" when value is empty and key should be translated
-    if (row.shouldTranslate !== false && (row.value ?? '').trim().length === 0) {
+    if (row.shouldTranslate !== false && effectiveValue.trim().length === 0) {
       badges.push({
         key: 'state-untranslated',
         label: 'Untranslated',
@@ -240,20 +249,36 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const commentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const editedSinceFocusRef = useRef(false)
+  const isTargetFocusedRef = useRef(false)
   const latestValue = useRef(localValue)
   const latestComment = useRef(localComment)
+  const previousRowKeyRef = useRef(row.key)
+  const onValueChangeRef = useRef(onValueChange)
+  const onCommentChangeRef = useRef(onCommentChange)
+
+  useEffect(() => {
+    onValueChangeRef.current = onValueChange
+  }, [onValueChange])
+
+  useEffect(() => {
+    onCommentChangeRef.current = onCommentChange
+  }, [onCommentChange])
 
   // Sync from parent when the row changes (e.g. page navigation)
   useEffect(() => {
-    setLocalValue(row.value)
-    latestValue.current = row.value
-  }, [row.value])
+    const keyChanged = previousRowKeyRef.current !== row.key
+    previousRowKeyRef.current = row.key
+    if (keyChanged || !isTargetFocusedRef.current || row.value === latestValue.current) {
+      setLocalValue(row.value)
+      latestValue.current = row.value
+    }
+  }, [row.key, row.value])
 
   useEffect(() => {
     const next = row.comment ?? ''
     setLocalComment(next)
     latestComment.current = next
-  }, [row.comment])
+  }, [row.key, row.comment])
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -267,11 +292,11 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
       }
 
       timerRef.current = setTimeout(() => {
-        onValueChange(row.key, next)
+        onValueChangeRef.current(row.key, next)
         timerRef.current = null
       }, DEBOUNCE_MS)
     },
-    [onValueChange, row.key],
+    [row.key],
   )
 
   const handleCommentChange = useCallback(
@@ -285,11 +310,11 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
       }
 
       commentTimerRef.current = setTimeout(() => {
-        onCommentChange(row.key, next)
+        onCommentChangeRef.current(row.key, next)
         commentTimerRef.current = null
       }, DEBOUNCE_MS)
     },
-    [onCommentChange, row.key],
+    [row.key],
   )
 
   // Flush pending debounce on unmount
@@ -297,21 +322,23 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current)
-        onValueChange(row.key, latestValue.current)
+        onValueChangeRef.current(row.key, latestValue.current)
       }
 
       if (commentTimerRef.current) {
         clearTimeout(commentTimerRef.current)
-        onCommentChange(row.key, latestComment.current)
+        onCommentChangeRef.current(row.key, latestComment.current)
       }
     }
-  }, [onCommentChange, onValueChange, row.key])
+  }, [row.key])
 
   const handleTargetFocus = useCallback(() => {
+    isTargetFocusedRef.current = true
     editedSinceFocusRef.current = false
   }, [])
 
   const handleTargetBlur = useCallback(() => {
+    isTargetFocusedRef.current = false
     if (!editedSinceFocusRef.current) return
 
     const trimmedStart = localValue.trimStart()
@@ -397,7 +424,7 @@ const DebouncedTranslationRow = memo(function DebouncedTranslationRow({
         <div className="min-w-0">
           <div className="grid min-h-4.5 grid-cols-[minmax(0,1fr)_auto] items-start gap-1.5">
             <div className="min-w-0">
-              <MetadataBadges row={row} isSourceLocale={isSourceLocale} />
+              <MetadataBadges row={row} isSourceLocale={isSourceLocale} valueOverride={localValue} />
             </div>
 
             <div className="justify-self-end">
@@ -549,6 +576,7 @@ export function TranslationTable({
   const virtualizer = useVirtualizer({
     count: displayRows.length,
     getScrollElement: () => parentRef.current,
+    getItemKey: (index) => displayRows[index]?.key ?? index,
     estimateSize: () => 140,
     overscan: 6,
   })

@@ -17,7 +17,7 @@ import { useAiSettingsStore } from '@/lib/ai-settings-store'
 import { useCatalog } from '@/lib/catalog-context'
 import { useEditorStore } from '@/lib/editor-store'
 import { translateText, translateBatch } from '@/lib/ollama'
-import type { CatalogEntry } from '@/lib/xcstrings'
+import type { CatalogEntry, TranslationState } from '@/lib/xcstrings'
 
 type StateFilter = 'all' | 'translated' | 'needs_review' | 'new' | 'stale' | 'untranslated'
 type ExtractionFilter = 'all' | 'manual' | 'extracted_with_value' | 'migrated' | 'stale_key'
@@ -350,6 +350,22 @@ export function LocaleEditor({ locale }: { locale: string }) {
     setPendingScrollKey(null)
   }, [])
 
+  const handleValueChange = useCallback((key: string, value: string) => {
+    updateTranslation(key, locale, value)
+  }, [locale, updateTranslation])
+
+  const handleCommentChange = useCallback((key: string, comment: string) => {
+    updateTranslationComment(key, comment)
+  }, [updateTranslationComment])
+
+  const handleStateChange = useCallback((key: string, state: TranslationState) => {
+    updateTranslationState(key, locale, state)
+  }, [locale, updateTranslationState])
+
+  const handleShouldTranslateChange = useCallback((key: string, shouldTranslate: boolean) => {
+    updateShouldTranslate(key, shouldTranslate)
+  }, [updateShouldTranslate])
+
   const handleAiTranslate = useCallback(async (key: string) => {
     if (!catalog || !sourceLocale) return
     const entry = catalog.entries.find((e) => e.key === key)
@@ -565,10 +581,10 @@ export function LocaleEditor({ locale }: { locale: string }) {
           locale={locale}
           scrollToKey={pendingScrollKey}
           onScrollToKeyHandled={handleVirtualScrollDone}
-          onValueChange={(key, value) => updateTranslation(key, locale, value)}
-          onCommentChange={(key, comment) => updateTranslationComment(key, comment)}
-          onStateChange={(key, state) => updateTranslationState(key, locale, state)}
-          onShouldTranslateChange={(key, shouldTranslate) => updateShouldTranslate(key, shouldTranslate)}
+          onValueChange={handleValueChange}
+          onCommentChange={handleCommentChange}
+          onStateChange={handleStateChange}
+          onShouldTranslateChange={handleShouldTranslateChange}
           onAiTranslate={isConnected && locale !== sourceLocale ? handleAiTranslate : undefined}
           aiTranslatingKeys={aiTranslatingKeys}
         />
