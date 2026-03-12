@@ -4,7 +4,7 @@
     {
       "label": "Serve Ollama",
       "type": "shell",
-      "command": "env OLLAMA_ORIGINS=\"https://xcstrings.ovh,http://127.0.0.1:11434\" ollama serve"
+      "command": "env OLLAMA_ORIGINS=\"https://xcstrings.rokartur.com,http://127.0.0.1:11434\" ollama serve"
     }
   ]
 }
