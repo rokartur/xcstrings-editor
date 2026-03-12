@@ -9,7 +9,7 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 export default defineConfig(({ mode }) => {
 	return {
     preview: {
-      allowedHosts: ['xcstrings.ovh'],
+			allowedHosts: ['xcstrings.rokartur.com'],
     },
 		plugins: [
 			tailwindcss(),

@@ -171,7 +171,7 @@ export function ExportDialog() {
       : null
     const fileRef = fileLink ? `[${catalog.fileName}](${fileLink})` : catalog.fileName
 
-    let body = `This pull request was created via [xcstrings.ovh](https://xcstrings.ovh).\n\nUpdated file: ${fileRef}`
+    let body = `This pull request was created via [xcstrings.rokartur.com](https://xcstrings.rokartur.com).\n\nUpdated file: ${fileRef}`
     if (sortedLocales.length > 0) {
       body += `\nUpdated language${sortedLocales.length === 1 ? '' : 's'}: ${sortedLocaleLabels.join(', ')}`
     }
