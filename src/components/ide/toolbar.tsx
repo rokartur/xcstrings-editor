@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, FileDiff, FilePlus, Languages, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Download, FileDiff, FilePlus, Languages, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -18,7 +18,7 @@ import { useEditorStore } from '@/lib/editor-store'
 
 export function Toolbar() {
   const { catalog, resetCatalog } = useCatalog()
-  const { setImportDialogOpen, setExportDialogOpen, setAddLanguageDialogOpen, closeAllTabs, openDiffTab } =
+  const { setImportDialogOpen, setExportDialogOpen, setAddLanguageDialogOpen, setCompareDialogOpen, closeAllTabs, openDiffTab } =
     useEditorStore()
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
@@ -89,6 +89,15 @@ export function Toolbar() {
                     {catalog.dirtyKeys.size}
                   </Badge>
                 )}
+              </Button>
+
+              <Button
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-xs"
+                onClick={() => setCompareDialogOpen(true)}
+              >
+                <ArrowLeftRight className="size-4" />
+                Compare
               </Button>
 
               <Button

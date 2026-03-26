@@ -1,6 +1,7 @@
 import { useCatalog } from '@/lib/catalog-context'
-import { DIFF_TAB_ID, useEditorStore } from '@/lib/editor-store'
+import { COMPARE_TAB_ID, DIFF_TAB_ID, useEditorStore } from '@/lib/editor-store'
 
+import { CompareView } from './compare-view'
 import { EditorTabBar } from './editor-tab-bar'
 import { DiffView } from './diff-view'
 import { LocaleEditor } from './locale-editor'
@@ -20,6 +21,8 @@ export function EditorArea() {
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === DIFF_TAB_ID ? (
           <DiffView />
+        ) : activeTab === COMPARE_TAB_ID ? (
+          <CompareView />
         ) : (
           activeTab && catalog.languages.includes(activeTab) && (
             <LocaleEditor key={activeTab} locale={activeTab} />

@@ -5,6 +5,7 @@ export type SidebarPanel = 'explorer' | 'search' | 'problems' | 'filters'
 export type FilterState = 'all' | 'stale' | 'needs_review' | 'new' | 'translated' | 'ignored' | 'untranslated'
 
 export const DIFF_TAB_ID = '__diff__'
+export const COMPARE_TAB_ID = '__compare__'
 
 interface EditorState {
   sidebarVisible: boolean
@@ -17,6 +18,7 @@ interface EditorState {
   exportDialogOpen: boolean
   addLanguageDialogOpen: boolean
   aiSettingsDialogOpen: boolean
+  compareDialogOpen: boolean
 }
 
 interface EditorActions {
@@ -25,12 +27,14 @@ interface EditorActions {
   setFilter: (filter: FilterState) => void
   openLocaleTab: (locale: string) => void
   openDiffTab: () => void
+  openCompareTab: () => void
   closeLocaleTab: (locale: string) => void
   setActiveTab: (locale: string | null) => void
   setImportDialogOpen: (open: boolean) => void
   setExportDialogOpen: (open: boolean) => void
   setAddLanguageDialogOpen: (open: boolean) => void
   setAiSettingsDialogOpen: (open: boolean) => void
+  setCompareDialogOpen: (open: boolean) => void
   closeAllTabs: () => void
   requestJumpToEntry: (locale: string, key: string) => void
   clearJumpToEntry: () => void
@@ -49,6 +53,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       exportDialogOpen: false,
       addLanguageDialogOpen: false,
       aiSettingsDialogOpen: false,
+      compareDialogOpen: false,
 
       toggleSidebar: () =>
         set((state) => ({ sidebarVisible: !state.sidebarVisible })),
@@ -85,6 +90,17 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           }
         }),
 
+      openCompareTab: () =>
+        set((state) => {
+          if (state.openTabs.includes(COMPARE_TAB_ID)) {
+            return { activeTab: COMPARE_TAB_ID }
+          }
+          return {
+            openTabs: [...state.openTabs, COMPARE_TAB_ID],
+            activeTab: COMPARE_TAB_ID,
+          }
+        }),
+
       closeLocaleTab: (locale) =>
         set((state) => {
           const nextTabs = state.openTabs.filter((t) => t !== locale)
@@ -102,6 +118,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       setExportDialogOpen: (open) => set({ exportDialogOpen: open }),
       setAddLanguageDialogOpen: (open) => set({ addLanguageDialogOpen: open }),
       setAiSettingsDialogOpen: (open) => set({ aiSettingsDialogOpen: open }),
+      setCompareDialogOpen: (open) => set({ compareDialogOpen: open }),
 
       closeAllTabs: () => set({ openTabs: [], activeTab: null }),
 

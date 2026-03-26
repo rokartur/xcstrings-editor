@@ -8,7 +8,6 @@
 		"jsx": "react-jsx",
 		"noEmit": true,
 		"rootDir": ".",
-		"baseUrl": "./",
 		"paths": {
 			"@/*": ["./src/*"],
 		},
@@ -29,6 +28,6 @@
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true
 	},
-	"include": ["src/**/*", "src/types/*", "*.config.ts"],
+	"include": ["src/**/*"],
 	"exclude": ["dist"]
 }
